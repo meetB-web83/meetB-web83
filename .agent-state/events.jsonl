@@ -1,0 +1,4 @@
+{"ts": "2026-10-26T11:21:15Z", "type": "session_start", "actor": "cline", "payload": {"model": "", "role": "debugging engineer"}}
+{"ts": "2026-10-26T11:47:40Z", "type": "session_start", "actor": "cline", "payload": {"model": "", "role": "software engineering agent"}}
+{"ts": "2026-10-16T07:36:16Z", "type": "session_start", "actor": "mimo", "payload": {"model": "MiMo-V2.6-Flash Free", "role": "software engineering agent"}}
+{"ts": "2026-10-16T07:36:16Z", "type": "checkpoint", "actor": "mimo", "payload": {"task_id": "backend-repair-and-demo-seed", "summary": "Backend repaired end-to-end: per-project storage live, all writes idempotent, 31/31 tests green, demo data seeded and verified."}}

@@ -1,0 +1,110 @@
+# WorkJournal — root .gitignore
+#
+# Decision (2026-10-19, per project owner):
+# `.workjournal/` and `.agent-state/` are TRACKED — commit everything in them.
+# Do NOT add them here. The `!` negations below re-include them even though
+# generic DB/WAL/BAK rules would otherwise match files inside them.
+
+# ── Dependencies (pnpm monorepo: backend/ + frontend/) ──
+node_modules/
+.pnpm-store/
+.pnpm-state/
+.pnpm-debug.log
+
+# ── Build / dist outputs ──
+dist/
+build/
+out/
+frontend/dist/
+frontend/build/
+backend/packages/*/dist/
+*.tsbuildinfo
+frontend/tsconfig.tsbuildinfo
+.vite/
+vite.config.*.timestamp-*.mjs
+
+# ── Env / local config (keep examples) ──
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+frontend/.env
+frontend/.env.*
+
+# ── SQLite / WorkJournal runtime data (OUTSIDE tracked folders) ──
+# Covers stray test DBs, registry.db, temp copies. Does NOT exclude the
+# tracked `.workjournal/` folder (see negations at bottom).
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite-journal
+*.bak
+*.sql.bak
+
+# ── Service runtime / PID / backups / exports (outside tracked folders) ──
+*.pid
+service.pid
+backups/
+exports/
+registry.db*
+
+# ── Logs ──
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+frontend/logs/
+backend/logs/
+
+# ── Test / coverage ──
+coverage/
+.nyc_output/
+.vitest-cache/
+junit*.xml
+test-results/
+
+# ── OS ──
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ── Editors / IDEs ──
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.default
+.idea/
+*.swp
+*.swo
+*~
+.opencode/
+.opencode-cache/
+
+# ── Python helpers (check_agent_state.py etc.) ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# ── Temp / misc ──
+tmp/
+temp/
+*.tmp
+*.temp
+*.orig
+*.rej
+
+# ── Re-include tracked local-state folders (must stay LAST) ──
+# User explicitly chose "Track both — commit everything".
+!/.workjournal/**
+!/.agent-state/**
+

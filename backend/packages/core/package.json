@@ -1,0 +1,33 @@
+{
+  "name": "@workjournal/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
+    "test": "echo 'Tests live in root tests/ directory'"
+  },
+  "dependencies": {
+    "@workjournal/shared": "workspace:*",
+    "drizzle-orm": "^0.38.0",
+    "fastify": "^5.2.0",
+    "fastify-plugin": "^5.0.1",
+    "pino": "^9.6.0",
+    "uuid": "^11.0.5",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/uuid": "^10.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

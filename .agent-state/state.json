@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "project": {
+    "name": "",
+    "created_at": "2026-10-13T11:01:50Z"
+  },
+  "agents": {
+    "cline": {
+      "name": "cline",
+      "model": "",
+      "role": "software engineering agent",
+      "capabilities": [
+        "debugging",
+        "full-stack",
+        "react",
+        "node",
+        "postgres",
+        "pricing-logic"
+      ],
+      "status": "active",
+      "usage": {
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "calls": 2
+      },
+      "errors_count": 0,
+      "created_at": "2026-10-26T11:21:15Z",
+      "last_active_at": "2026-10-26T11:47:40Z"
+    },
+    "mimo": {
+      "name": "mimo",
+      "model": "MiMo-V2.6-Flash Free",
+      "role": "software engineering agent",
+      "capabilities": [
+        "backend",
+        "frontend",
+        "testing",
+        "sqlite",
+        "mcp"
+      ],
+      "status": "active",
+      "usage": {
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "calls": 2
+      },
+      "errors_count": 0,
+      "created_at": "2026-10-16T07:36:16Z",
+      "last_active_at": "2026-10-16T07:36:16Z"
+    }
+  },
+  "tasks": {},
+  "errors": [],
+  "context": {},
+  "checkpoints": {
+    "ckpt_bcde051fbe77": {
+      "id": "ckpt_bcde051fbe77",
+      "agent": "mimo",
+      "task_id": "backend-repair-and-demo-seed",
+      "summary": "Backend repaired end-to-end: per-project storage live, all writes idempotent, 31/31 tests green, demo data seeded and verified.",
+      "data": {
+        "progress_summary": "Backend repaired end-to-end: per-project storage live, all writes idempotent, 31/31 tests green, demo data seeded and verified.",
+        "completed_work": [
+          "Fixed builds across core/mcp-adapter/shared/cli/tests (tsconfig, entry split: src/index.ts barrel + src/main.ts bootstrap)",
+          "Shared contracts: idempotency_key on every write schema, agent_id on create/update task, specialised transition schemas, events types module",
+          "Storage: per-project DB resolver with root-path normalization, per-migration backups, registry kept as index only",
+          "Domain: transactional IdempotencyService.run (state + event + idempotency record commit/rollback together); claim via canTransition (open|interrupted -> in_progress)",
+          "HTTP: routes rewritten with snake->camel mapping, per-request project DB resolution, awaited service calls (fixed Promise-as-{} bug)",
+          "MCP adapter: thin forwarder on shared schemas; query builder extracted (omits empty filters); actionable service-down error",
+          "Frontend: idempotency keys + agent_id on all write payloads; typecheck + build clean",
+          "Tests: 31/31 passing (9 files) incl. new storage, idempotency replay/conflict, HTTP fastify.inject, adapter query-building suites",
+          "Docs: docs/specs/shared-contracts.md, docs/specs/M2-durable-task-records.md, docs/decisions.md (D-001..D-006)",
+          "Demo data: 4 tasks (in_progress/interrupted/completed/cancelled), 3 checkpoints, 2 decisions, full event history; replay returns same task, conflicting key -> 409"
+        ],
+        "current_findings": [
+          "Core service running via pnpm dev (background) on http://127.0.0.1:3737",
+          "Per-project DB live at <repo>/.workjournal/workjournal.db (WAL + migration backup)",
+          "Verified read-backs: get_task, get_task_history (monotonic seq), get_resume_context, export json/markdown",
+          "MCP adapter code verified healthy via direct stdio handshake (new schemas require idempotency_key)"
+        ],
+        "unresolved_issues": [
+          "WorkJournal MCP server in OpenCode is DISCONNECTED: stale adapter processes killed to unload old schemas; reconnect via /mcps to spawn the rewritten adapter"
+        ],
+        "next_steps": [
+          "meetb: run /mcps in OpenCode to reconnect the workjournal adapter",
+          "Future sessions: propose agent string to meetb, then claim tasks (registry project e405de72-89a5-4151-931c-248fb6b8ef87)",
+          "M3+ per scope doc: dashboard polish, backup CLI wiring, Release 1 cut"
+        ],
+        "file_references": [
+          "backend/packages/core/src/db/project-db.ts",
+          "backend/packages/core/src/domain/idempotency-service.ts",
+          "backend/packages/core/src/domain/task-service.ts",
+          "backend/packages/core/src/http/routes/tasks.ts",
+          "backend/packages/mcp-adapter/src/tools/register.ts",
+          "backend/tests/integration/storage.test.ts",
+          "backend/tests/integration/idempotency.test.ts",
+          "backend/tests/integration/http.test.ts",
+          "backend/tests/integration/adapter.test.ts",
+          "docs/decisions.md"
+        ]
+      },
+      "created_at": "2026-10-16T07:36:16Z"
+    }
+  },
+  "handoffs": []
+}

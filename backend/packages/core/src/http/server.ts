@@ -1,0 +1,65 @@
+import { resolve } from 'node:path';
+import Fastify from 'fastify';
+import type { Database } from '../db/connection.js';
+import type { Config } from '../config.js';
+import { ProjectDbResolver } from '../db/project-db.js';
+import { buildServices, type CoreServices } from './services.js';
+import { registerProjectRoutes } from './routes/projects.js';
+import { registerTaskRoutes } from './routes/tasks.js';
+import { registerEventRoutes } from './routes/events.js';
+import { registerCheckpointRoutes } from './routes/checkpoints.js';
+import { registerDecisionRoutes } from './routes/decisions.js';
+import { registerResumeRoutes } from './routes/resume.js';
+import { registerExportRoutes } from './routes/export.js';
+import { registerDashboardRoutes } from './routes/dashboard.js';
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    /** Registry DB (project index + project-level idempotency). */
+    registryDb: Database;
+    /** Opens per-project databases on demand. */
+    projectDbs: ProjectDbResolver;
+    /** Registry-scoped services; task-scoped routes use `buildServices(projectDb)`. */
+    services: CoreServices;
+    config: Config;
+  }
+}
+
+export function buildServer(db: Database, config: Config) {
+  const server = Fastify({
+    logger: { level: config.logLevel },
+    bodyLimit: 1_048_576,
+  });
+
+  const projectDbs = new ProjectDbResolver(db, resolve(import.meta.dirname, '../../project-migrations'));
+
+  server.decorate('registryDb', db);
+  server.decorate('projectDbs', projectDbs);
+  server.decorate('services', buildServices(db));
+  server.decorate('config', config);
+
+  server.addHook('onClose', async () => {
+    projectDbs.closeAll();
+  });
+
+  server.setErrorHandler((error: any, request, reply) => {
+    if (error?.name === 'WorkJournalError') {
+      return reply
+        .status(error.statusCode || 400)
+        .send({ error: error.code, message: error.message });
+    }
+    request.log.error(error);
+    return reply.status(500).send({ error: 'INTERNAL_ERROR', message: 'An internal error occurred' });
+  });
+
+  server.register(registerProjectRoutes, { prefix: '/api/projects' });
+  server.register(registerTaskRoutes, { prefix: '/api/tasks' });
+  server.register(registerEventRoutes, { prefix: '/api/events' });
+  server.register(registerCheckpointRoutes, { prefix: '/api/checkpoints' });
+  server.register(registerDecisionRoutes, { prefix: '/api/decisions' });
+  server.register(registerResumeRoutes, { prefix: '/api/resume' });
+  server.register(registerExportRoutes, { prefix: '/api/export' });
+  server.register(registerDashboardRoutes, { prefix: '/api/dashboard' });
+
+  return server;
+}

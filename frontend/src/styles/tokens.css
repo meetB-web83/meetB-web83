@@ -1,0 +1,96 @@
+/* Neo-Digital Brutalism tokens — WorkJournal Dashboard (see frontend/DESIGN.md) */
+
+:root {
+  /* Structural */
+  --color-structural: #000000;
+  --color-ink: #1b1c19;
+  --color-body: #4c4546;
+  --color-muted: #7e7576;
+  --color-muted-soft: #cfc4c5;
+
+  /* Canvas */
+  --color-canvas: #faf9f3;
+  --color-surface-lowest: #ffffff;
+  --color-surface-low: #f5f4ee;
+  --color-surface: #efeee8;
+  --color-surface-high: #e9e8e2;
+  --color-surface-highest: #e3e3dd;
+  --color-surface-dark: #1b1b1b;
+  --color-on-dark: #f2f1eb;
+
+  /* Functional accents */
+  --color-blue: #3b82f6;
+  --color-blue-deep: #0058be;
+  --color-blue-ink: #001a42;
+  --color-grid-blue: #4da2ff;
+  --color-yellow: #ffd028;
+  --color-yellow-deep: #efc112;
+  --color-mint: #00d287;
+  --color-mint-deep: #22c55e;
+  --color-lilac: #e4d4f8;
+  --color-orange: #ff6b00;
+
+  /* Semantic */
+  --color-error: #ba1a1a;
+  --color-error-bg: #ffdad6;
+  --color-on-error: #ffffff;
+
+  /* Primary action = structural black per DESIGN.md */
+  --color-primary: #000000;
+  --color-on-primary: #ffffff;
+  --color-primary-disabled: #c6c6c6;
+
+  /* Typography */
+  --font-display: 'Space Grotesk', -apple-system, system-ui, 'Segoe UI', sans-serif;
+  --font-sans: 'Space Grotesk', -apple-system, system-ui, 'Segoe UI', sans-serif;
+  --font-mono: 'Space Mono', ui-monospace, monospace;
+
+  /* Radii — DESIGN.md: strictly 0 */
+  --rounded-none: 0;
+  --rounded-xs: 0;
+  --rounded-sm: 0;
+  --rounded-md: 0;
+  --rounded-lg: 0;
+  --rounded-xl: 0;
+  --rounded-pill: 0;
+  --rounded-full: 0;
+
+  /* Borders */
+  --border-thin: 1px solid #000000;
+  --border-thick: 2px solid #000000;
+
+  /* Elevation — flat borders + optional hard shadow, never blur */
+  --shadow-hard: 4px 4px 0px #000000;
+  --shadow-hard-sm: 2px 2px 0px #000000;
+
+  /* Graph-paper backdrop (24px grid, blueprint blue at 25%) */
+  --bg-grid: repeating-linear-gradient(
+      to right,
+      rgba(77, 162, 255, 0.25) 0,
+      rgba(77, 162, 255, 0.25) 1px,
+      transparent 1px,
+      transparent 24px
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      rgba(77, 162, 255, 0.25) 0,
+      rgba(77, 162, 255, 0.25) 1px,
+      transparent 1px,
+      transparent 24px
+    );
+
+  /* Spacing (DESIGN.md scale) */
+  --spacing-xxs: 4px;  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2.5rem;
+  --spacing-xxl: 48px;
+  --spacing-section: 96px;
+
+  /* Page side gutters (full-bleed layout) */
+  --page-gutter: 100px;
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+}

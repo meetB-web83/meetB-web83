@@ -1,0 +1,25 @@
+{
+  "name": "workjournal-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WorkJournal backend — local-first task continuity system",
+  "scripts": {
+    "dev": "pnpm --filter @workjournal/core dev",
+    "build": "pnpm -r build",
+    "test": "pnpm --filter @workjournal/tests test",
+    "test:watch": "pnpm --filter @workjournal/tests test:watch",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "start": "pnpm --filter @workjournal/cli start",
+    "mcp": "pnpm --filter @workjournal/mcp-adapter start"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.0",
+    "drizzle-kit": "^0.30.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
