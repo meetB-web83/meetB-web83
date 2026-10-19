@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { createDatabase, type Database } from './connection.js';
-import { runMigrations } from './migrate.js';
+import { runMigrations, type MigrationFile } from './migrate.js';
 import { NotFoundError } from '@workjournal/shared';
 import { normalizeProjectPath } from './paths.js';
 
@@ -116,7 +116,7 @@ export class ProjectDbResolver {
 
   constructor(
     private registry: Database,
-    private projectMigrationsDir: string,
+    private projectMigrations: string | MigrationFile[],
   ) {}
 
   /** Registry row for a project, or an actionable NOT_FOUND. */
@@ -227,7 +227,7 @@ export class ProjectDbResolver {
     if (cached) return cached;
 
     const db = createDatabase(dbPath);
-    runMigrations(db, this.projectMigrationsDir);
+    runMigrations(db, this.projectMigrations);
     this.cache.set(projectId, db);
     return db;
   }

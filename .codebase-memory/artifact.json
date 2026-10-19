@@ -1,11 +1,11 @@
 {
     "schema_version": 2,
-    "commit": "ca8b579e9e1c36a74289bb20390985f8232e8d86",
-    "indexed_at": "2026-10-19T07:23:12Z",
+    "commit": "f164e6347ef99afb9d98e14101c953cc16628156",
+    "indexed_at": "2026-10-19T12:43:51Z",
     "project": "PERSONAL_WorkJournal",
-    "nodes": 1152,
-    "edges": 2456,
-    "original_size": 3866624,
-    "compressed_size": 635765,
+    "nodes": 1298,
+    "edges": 2866,
+    "original_size": 4390912,
+    "compressed_size": 731777,
     "compression_level": 9
 }

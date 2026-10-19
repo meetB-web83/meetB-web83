@@ -15,6 +15,7 @@ node_modules/
 dist/
 build/
 out/
+backend/dist-bin/
 frontend/dist/
 frontend/build/
 backend/packages/*/dist/

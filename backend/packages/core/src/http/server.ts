@@ -1,4 +1,3 @@
-import { resolve } from 'node:path';
 import Fastify from 'fastify';
 import type { Database } from '../db/connection.js';
 import type { Config } from '../config.js';
@@ -14,6 +13,7 @@ import { registerExportRoutes } from './routes/export.js';
 import { registerDashboardRoutes } from './routes/dashboard.js';
 import { registerUiRoutes } from './ui.js';
 import { validateProjectsMount } from '../db/paths.js';
+import { projectMigrationsSource } from '../db/migrations-source.js';
 import type { UiAssets } from '../ui/ui-assets.js';
 
 declare module 'fastify' {
@@ -48,7 +48,7 @@ export function buildServer(db: Database, config: Config, options: BuildServerOp
     bodyLimit: 1_048_576,
   });
 
-  const projectDbs = new ProjectDbResolver(db, resolve(import.meta.dirname, '../../project-migrations'));
+  const projectDbs = new ProjectDbResolver(db, projectMigrationsSource());
 
   server.decorate('registryDb', db);
   server.decorate('projectDbs', projectDbs);

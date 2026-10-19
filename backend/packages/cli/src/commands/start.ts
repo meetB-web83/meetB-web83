@@ -1,17 +1,18 @@
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { loadConfig } from '@workjournal/core';
-import { createDatabase, runMigrations, buildServer } from '@workjournal/core';
+import {
+  createDatabase,
+  runMigrations,
+  buildServer,
+  registryMigrationsSource,
+} from '@workjournal/core';
 import {
   embeddedUiAssets,
   loadUiAssetsFromDir,
   type UiAssets,
 } from '@workjournal/core';
 import { writePidFile } from '../utils/pid-file.js';
-import { fileURLToPath } from 'node:url';
-import { dirname } from 'node:path';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export interface StartOptions {
   /** Serve the dashboard from embedded assets on the same origin as the API. */
@@ -46,8 +47,7 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
   const dbPath = resolve(homeDir, 'registry.db');
   const db = createDatabase(dbPath);
 
-  const migrationsDir = resolve(__dirname, '../../../core/migrations');
-  runMigrations(db, migrationsDir);
+  runMigrations(db, registryMigrationsSource());
 
   let ui: UiAssets | null = null;
   if (options.uiDir) {

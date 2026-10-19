@@ -2,14 +2,17 @@
   "name": "workjournal-backend",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "WorkJournal backend — local-first task continuity system",
   "scripts": {
     "dev": "pnpm --filter @workjournal/core dev",
     "build": "pnpm -r build",
+    "build:exe": "tsx scripts/build-exe.ts",
+    "smoke:exe": "tsx scripts/smoke-exe.ts",
     "test": "pnpm --filter @workjournal/tests test",
     "test:watch": "pnpm --filter @workjournal/tests test:watch",
-    "lint": "pnpm -r lint",
-    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint && eslint scripts/",
+    "typecheck": "pnpm -r typecheck && tsc -p scripts/tsconfig.json",
     "start": "pnpm --filter @workjournal/cli start",
     "mcp": "pnpm --filter @workjournal/mcp-adapter start"
   },
@@ -18,11 +21,14 @@
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.0",
     "drizzle-kit": "^0.30.0",
+    "esbuild": "^0.28.2",
     "eslint": "^9.0.0",
+    "postject": "1.0.0-alpha.6",
+    "tsx": "^4.23.15",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.0.0"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.3.0"
   }
 }

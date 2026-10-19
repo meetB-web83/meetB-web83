@@ -11,8 +11,8 @@
   },
   "scripts": {
     "dev": "tsx watch src/main.ts",
-    "embed": "tsx scripts/embed-ui.ts",
-    "build": "tsx scripts/embed-ui.ts && tsc",
+    "embed": "tsx scripts/embed-ui.ts && tsx scripts/embed-migrations.ts",
+    "build": "tsx scripts/embed-ui.ts && tsx scripts/embed-migrations.ts && tsc",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/ scripts/",
     "test": "echo 'Tests live in root tests/ directory'"

@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { loadConfig } from './config.js';
 import { createDatabase } from './db/connection.js';
 import { runMigrations } from './db/migrate.js';
+import { registryMigrationsSource } from './db/migrations-source.js';
 import { buildServer } from './http/server.js';
 
 const config = loadConfig();
@@ -13,8 +14,7 @@ mkdirSync(homeDir, { recursive: true });
 const dbPath = resolve(homeDir, 'registry.db');
 const db = createDatabase(dbPath);
 
-const migrationsDir = resolve(import.meta.dirname, '../migrations');
-runMigrations(db, migrationsDir);
+runMigrations(db, registryMigrationsSource());
 
 const server = buildServer(db, config);
 

@@ -179,3 +179,51 @@ logic so HTTP routes, MCP tools, and tests share the same behavior. Startup
 validation fails fast with actionable Docker Desktop file-sharing guidance. The
 identity rule (history follows the folder) matches user expectations and keeps the
 registry a rebuildable index.
+
+## D-012 — Single executable via Node SEA; generated embed files are committed (2026-10-19)
+
+**Decision.** Release 1 ships a second distribution alongside Docker: a single
+Node SEA executable built by `pnpm build:exe` (`backend/scripts/build-exe.ts`)
+into `dist-bin/workjournal(.exe)`, verified by `pnpm smoke:exe`
+(`backend/scripts/smoke-exe.ts`: `--version`, `start --with-ui` serving UI +
+`/health` + `/api` on one port, `mcp` stdio handshake, `stop`). Specifically:
+
+- **Generated embed files are committed** (`embedded-ui.generated.ts`,
+  `embedded-migrations.generated.ts`; codegen chained into core's `embed`/`build`
+  scripts), so a fresh clone typechecks and builds without running codegen or a
+  frontend build first. ESLint ignores `**/*.generated.ts`.
+- **Migrations have two sources** (`db/migrations-source.ts`): the `.sql`
+  directory on disk when it exists (dev/Docker byte-identical to before),
+  otherwise the embedded arrays; `runMigrations` takes `string | MigrationFile[]`
+  and every caller goes through the resolver — no caller computes its own path
+  from `import.meta`.
+- **The bundle is one CommonJS file** produced by esbuild from the tsc-built
+  `packages/cli/dist/standalone.js` (shared commander program in `program.ts`;
+  no top-level await anywhere in its graph — the adapter's TLA `index.ts` stays
+  out of it). `import.meta.dirname` is a build `define` set to `undefined`, so
+  `migrations-source.ts` falls through to the embedded arrays inside the binary
+  (and any other `import.meta` use still warns + must be fixed); `node:sqlite`
+  loads via `process.getBuiltinModule('node:sqlite')` instead of
+  `createRequire(import.meta.url)`, raising `engines.node` to `>=22.3.0`.
+- **SEA assembly** follows the Node docs: sea-config → blob → copy of
+  `process.execPath` → postject (`NODE_SEA_BLOB` + sentinel fuse
+  `NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`). The optional signature
+  remove/re-sign steps ("refreeze") are skipped with a log line when `signtool`
+  is absent (normal on this machine); postject's "signature seems corrupted"
+  warning about node.exe's stale Authenticode signature is then expected and
+  harmless. `dist-bin/` is gitignored (rebuildable artifact).
+- `backend/scripts/` is typechecked (`tsc -p scripts/tsconfig.json`) and linted
+  by the root `typecheck`/`lint` scripts; `backend/package.json` gained
+  `"type": "module"` so those scripts are ESM under Node16 resolution.
+
+**Reason.** Task 5d3a1793 (Phase 2): users must run WorkJournal with no Node
+install and no source checkout. Committing the generated embed files keeps the
+"fresh clone builds" property that Docker/dev already rely on, while letting the
+SEA binary read migrations and the dashboard without any files next to it —
+`migrations-source.ts` picks disk vs. embedded from what actually exists, so the
+same `.sql` inputs produce the same `__migrations` ledger in every packaging
+mode. The `getBuiltinModule` switch exists because esbuild empties `import.meta`
+under the CJS output format the SEA requires; the explicit `define` documents
+the one intentional `import.meta` use instead of hiding the warning. Note: the
+task's acceptance criteria said "D-011", but that ID was taken by the Docker
+path-mapping decision; recorded as D-012 with meetb's agreement (2026-10-19).

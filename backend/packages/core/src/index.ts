@@ -3,7 +3,11 @@
 export { loadConfig, type Config } from './config.js';
 export { createDatabase, type Database } from './db/connection.js';
 export { createBackup } from './db/backup.js';
-export { runMigrations, ensureMigrationsDir } from './db/migrate.js';
+export { runMigrations, ensureMigrationsDir, type MigrationFile } from './db/migrate.js';
+export {
+  registryMigrationsSource,
+  projectMigrationsSource,
+} from './db/migrations-source.js';
 export { ProjectDbResolver, normalizeRootPath, projectDbPath, type ProjectScope } from './db/project-db.js';
 export { buildServer, type BuildServerOptions } from './http/server.js';
 export {
