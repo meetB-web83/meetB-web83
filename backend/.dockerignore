@@ -1,0 +1,11 @@
+# Build context for the backend workspace (core + mcp-adapter images).
+**/node_modules
+**/dist
+.env
+.env.*
+*.log
+.git
+# Tests are not shipped in images, but tests/package.json must be present so
+# pnpm can validate the workspace lockfile during install.
+tests/**
+!tests/package.json

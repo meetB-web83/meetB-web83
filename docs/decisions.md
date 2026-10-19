@@ -112,3 +112,50 @@ decisions stay unpaginated (agreed: tiny tables).
 both stats and recents would silently go stale past 100 tasks. Server-side `GROUP BY`
 counts stay correct at any scale; the scope dropdown reuses the same endpoint instead
 of adding per-project fan-out.
+
+## D-009 — Streamable HTTP transport via SDK transport + in-adapter session registry (2026-10-19)
+
+**Decision.** The MCP adapter gains a second transport: Streamable HTTP
+(`@modelcontextprotocol/sdk/server/streamableHttp.js`, SDK 1.32.1), selected by
+`MCP_TRANSPORT=http` (default remains `stdio`). Both transports build the server via the
+same `createMcpServer()` factory so tool names, descriptions, Zod schemas and handlers are
+identical by construction. Because SDK 1.32.1 ships no `StreamableHTTPSessionManager`,
+the adapter keeps a small session registry (`http-server.ts`): each `initialize` creates
+a fresh `McpServer` + `StreamableHTTPServerTransport` pair keyed by the generated session
+ID; requests are routed by the `mcp-session-id` header, unknown IDs → 404,
+non-initialize without ID → 400, per the MCP Streamable HTTP spec. Endpoint path `/mcp`
+on `MCP_PORT` (default 3738), bound to `127.0.0.1`. DNS-rebinding/browser-origin
+protection is implemented as external header validation (`validate-headers.ts`) — the
+SDK's built-in `allowedHosts`/`allowedOrigins` options are deprecated — plus an optional
+`MCP_AUTH_TOKEN` bearer check (off by default; root AGENTS.md: no auth in Release 1).
+`/healthz` stays unauthenticated for container health checks.
+
+**Reason.** Docker deployment needs an HTTP MCP endpoint clients can connect to without
+spawning a host-side process (release spec §2, §3). Reusing the SDK transport keeps the
+protocol implementation official; the thin registry only does session bookkeeping.
+Header validation lives in its own module so it is unit-testable without a server, and
+the token is opt-in so the loopback-only local-dev model stays frictionless.
+
+## D-010 — Docker distribution: three images, generated release compose via GitHub Releases (2026-10-19)
+
+**Decision.** Three multi-stage images (`workjournal-core`, `workjournal-mcp`,
+`workjournal-web`) built from `node:22-alpine`, running as a non-root user, with
+`pnpm deploy --prod` for backend runtime stages. The web image serves the built SPA
+with `vite preview` and proxies `/api` to `http://core:3737` via `preview.proxy`
+(`VITE_CORE_URL`) — no new web server is introduced. Root `docker-compose.yml` builds
+from source for development; the distributed artifact is generated at release time
+from `docs/release/compose.yaml.template` by `.github/workflows/release.yml` (sed
+replaces `__BASE__`/`__VERSION__`), so no registry username is hardcoded in the
+repository, and the released `compose.yaml` references published images only (no
+`build:`). The release pipeline is verify → images (amd64+arm64) → publish, and
+never pushes before tests/builds pass. Core is never published to the host;
+published ports bind to `127.0.0.1`; SQLite lives in the `workjournal-data` named
+volume at `/data`.
+
+**Reason.** Release spec §3–§6: users must run `docker compose up -d` from a
+downloaded compose file with no source checkout, no Node toolchain, and no
+host-side MCP process. Template-generation keeps one source of truth while
+allowing any OCI registry via repository variables. `vite preview` reuses the
+existing frontend toolchain instead of adding nginx (proxy config stays in
+`vite.config.ts` alongside the dev proxy). The web image keeps dev dependencies
+because `vite preview` itself is a dev dependency — documented tradeoff.

@@ -61,5 +61,9 @@ export function buildServer(db: Database, config: Config) {
   server.register(registerExportRoutes, { prefix: '/api/export' });
   server.register(registerDashboardRoutes, { prefix: '/api/dashboard' });
 
+  // Liveness probe for container health checks: no DB access, no auth (root
+  // AGENTS.md: no authentication; the route reveals nothing).
+  server.get('/health', async () => ({ status: 'ok' }));
+
   return server;
 }

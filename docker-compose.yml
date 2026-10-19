@@ -1,0 +1,91 @@
+# WorkJournal — local Docker Compose bundle (development / from-source build).
+#
+#   docker compose up -d
+#
+# Dashboard:  http://127.0.0.1:3000   (override with WEB_PORT)
+# MCP:        http://127.0.0.1:3738/mcp (override with MCP_HOST_PORT; if you
+#             change it, also set MCP_ALLOWED_HOSTS / MCP_ALLOWED_ORIGINS)
+# Core API:   internal only — never published to the host.
+#
+# All published ports bind to 127.0.0.1. SQLite data lives in the named volume
+# `workjournal-data` mounted at /data in the core container; it survives
+# restarts, recreations and image upgrades. Remove it only with
+# `docker compose down -v` (destructive).
+
+name: workjournal
+
+services:
+  core:
+    build:
+      context: ./backend
+      dockerfile: packages/core/Dockerfile
+    image: ${DOCKERHUB_USERNAME:-local}/workjournal-core:${WORKJOURNAL_VERSION:-dev}
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3737"
+      WORKJOURNAL_HOME: /data
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - workjournal-data:/data
+    # No ports: the core API and SQLite stay reachable only inside the Compose
+    # network (web and mcp reach it at http://core:3737).
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3737/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  mcp:
+    build:
+      context: ./backend
+      dockerfile: packages/mcp-adapter/Dockerfile
+    image: ${DOCKERHUB_USERNAME:-local}/workjournal-mcp:${WORKJOURNAL_VERSION:-dev}
+    environment:
+      MCP_TRANSPORT: http
+      MCP_HTTP_HOST: 0.0.0.0
+      MCP_PORT: "3738"
+      WORKJOURNAL_CORE_URL: http://core:3737
+      # Optional extra allowlist entries (comma-separated exact host:port /
+      # origin values) if you publish on a different host port.
+      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-}
+      MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS:-}
+      # Optional bearer token; when set, clients must send
+      # Authorization: Bearer <token> on every /mcp request.
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
+    ports:
+      - "127.0.0.1:${MCP_HOST_PORT:-3738}:3738"
+    depends_on:
+      core:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3738/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+    image: ${DOCKERHUB_USERNAME:-local}/workjournal-web:${WORKJOURNAL_VERSION:-dev}
+    environment:
+      # vite preview proxies /api to the core service over the Compose network.
+      VITE_CORE_URL: http://core:3737
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3000}:5173"
+    depends_on:
+      core:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5173/"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+volumes:
+  workjournal-data:

@@ -1,0 +1,173 @@
+# WorkJournal release pipeline.
+#
+# Triggers on version tags (v1.0.0, ...). Gate order:
+#   verify (lint, typecheck, tests, builds) -> images (3 production images)
+#   -> publish (versioned compose.yaml release artifact).
+# Images are never pushed unless every verify step passed.
+#
+# Required repository configuration:
+#   Variables (Settings -> Variables):
+#     DOCKERHUB_USERNAME   Docker Hub namespace (or set REGISTRY + IMAGE_NS)
+#     REGISTRY             optional, default docker.io (any OCI registry)
+#     IMAGE_NS             optional, default = DOCKERHUB_USERNAME
+#   Secrets (Settings -> Secrets):
+#     REGISTRY_USERNAME    registry login user
+#     REGISTRY_PASSWORD    registry password / token
+#   Never commit credentials; they live only in repository secrets.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.5.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: backend/pnpm-lock.yaml
+
+      - name: Backend install
+        working-directory: backend
+        run: pnpm install --frozen-lockfile
+
+      - name: Backend lint
+        working-directory: backend
+        run: pnpm lint
+
+      - name: Backend typecheck
+        working-directory: backend
+        run: pnpm typecheck
+
+      - name: Backend tests (real SQLite)
+        working-directory: backend
+        run: pnpm test
+
+      - name: Backend build
+        working-directory: backend
+        run: pnpm build
+
+      - name: Frontend install
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Frontend typecheck
+        working-directory: frontend
+        run: pnpm typecheck
+
+      - name: Frontend build
+        working-directory: frontend
+        run: pnpm build
+
+  images:
+    name: Build and push images
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Resolve image base and version
+        id: meta
+        env:
+          REGISTRY: ${{ vars.REGISTRY }}
+          IMAGE_NS: ${{ vars.IMAGE_NS || vars.DOCKERHUB_USERNAME }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          BASE="${REGISTRY:-docker.io}/${IMAGE_NS}/workjournal"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to the registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ vars.REGISTRY || 'docker.io' }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Build and push core
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          file: backend/packages/core/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.base }}-core:${{ steps.meta.outputs.version }}
+            ${{ steps.meta.outputs.base }}-core:latest
+          cache-from: type=gha,scope=core
+          cache-to: type=gha,scope=core,mode=max
+
+      - name: Build and push mcp
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          file: backend/packages/mcp-adapter/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.base }}-mcp:${{ steps.meta.outputs.version }}
+            ${{ steps.meta.outputs.base }}-mcp:latest
+          cache-from: type=gha,scope=mcp
+          cache-to: type=gha,scope=mcp,mode=max
+
+      - name: Build and push web
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          file: frontend/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.base }}-web:${{ steps.meta.outputs.version }}
+            ${{ steps.meta.outputs.base }}-web:latest
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,scope=web,mode=max
+
+  publish:
+    name: Publish release compose artifact
+    needs: images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate versioned compose.yaml
+        env:
+          REGISTRY: ${{ vars.REGISTRY }}
+          IMAGE_NS: ${{ vars.IMAGE_NS || vars.DOCKERHUB_USERNAME }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          BASE="${REGISTRY:-docker.io}/${IMAGE_NS}/workjournal"
+          sed -e "s#__BASE__#${BASE}#g" -e "s#__VERSION__#${VERSION}#g" \
+            docs/release/compose.yaml.template > compose.yaml
+          sed -e "s#__VERSION__#${VERSION}#g" \
+            docs/release/.env.example > .env.example
+          echo "Generated compose.yaml for $BASE:$VERSION"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" compose.yaml .env.example \
+            --title "WorkJournal $VERSION" \
+            --notes "Download compose.yaml, run: docker compose up -d. Dashboard http://127.0.0.1:3000, MCP http://127.0.0.1:3738/mcp."

@@ -18,4 +18,14 @@ export default defineConfig({
       },
     },
   },
+  preview: {
+    // Production preview (also used by the Docker image): VITE_CORE_URL lets
+    // the container point at the Compose service name (http://core:3737).
+    proxy: {
+      '/api': {
+        target: process.env.VITE_CORE_URL || 'http://127.0.0.1:3737',
+        changeOrigin: true,
+      },
+    },
+  },
 });
