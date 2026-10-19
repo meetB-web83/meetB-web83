@@ -108,27 +108,37 @@ export function fromContainerPath(ctx: PathContext | null, containerPath: string
  * Called from buildServer so every entry point (main.ts, CLI start) enforces
  * it. Tests that call buildServer without PROJECTS_DIRECTORY are unaffected.
  */
-export function validateProjectsMount(env: NodeJS.ProcessEnv = process.env): string | null {
+export function validateProjectsMount(
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
   const hostRoot = normalizeProjectPath(env.PROJECTS_DIRECTORY || '');
   if (!hostRoot) return null;
 
-  let detail = 'mount missing or not a directory';
   try {
     if (!statSync(CONTAINER_PROJECTS_ROOT).isDirectory()) {
       return (
         `PROJECTS_DIRECTORY is set (${hostRoot}) but ${CONTAINER_PROJECTS_ROOT} is not ` +
-        `mounted as a directory. Docker: the Compose file bind-mounts it automatically; ` +
-        `check your override files.`
+        `mounted as a directory. Docker: check your Compose bind mount and override files.`
       );
     }
+
     accessSync(CONTAINER_PROJECTS_ROOT, constants.R_OK | constants.W_OK);
-  } catch (err: any) {
-    detail = err?.code || err?.message || 'unknown error';
+
+    // Both checks passed. The mount is valid.
+    return null;
+  } catch (err: unknown) {
+    const detail =
+      err instanceof Error && 'code' in err
+        ? String(err.code)
+        : err instanceof Error
+          ? err.message
+          : 'unknown error';
+
+    return (
+      `PROJECTS_DIRECTORY is set (${hostRoot}) but ${CONTAINER_PROJECTS_ROOT} is not ` +
+      `readable/writable inside this container (${detail}). Docker Desktop: enable the ` +
+      `drive/folder under Settings → Resources → File sharing, then recreate the core ` +
+      `container. Never fall back to an unrelated directory.`
+    );
   }
-  return (
-    `PROJECTS_DIRECTORY is set (${hostRoot}) but ${CONTAINER_PROJECTS_ROOT} is not ` +
-    `readable/writable inside this container (${detail}). Docker Desktop: enable the ` +
-    `drive/folder under Settings → Resources → File sharing, then recreate the core ` +
-    `container. Never fall back to an unrelated directory.`
-  );
 }

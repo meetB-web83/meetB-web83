@@ -1,6 +1,10 @@
-# WorkJournal — local Docker Compose bundle (development / from-source build).
+# WorkJournal — Docker Compose bundle (pulls pre-built images from Docker Hub).
 #
 #   docker compose up -d
+#
+# Images are pulled from docker.io/web83/workjournal-*:latest; no local build
+# is performed. To build from source instead, re-add `build:` sections or run
+# `docker compose build`.
 #
 # Dashboard:  http://127.0.0.1:3000   (override with WEB_PORT)
 # MCP:        http://127.0.0.1:3738/mcp (override with MCP_HOST_PORT; if you
@@ -16,23 +20,24 @@ name: workjournal
 
 services:
   core:
-    build:
-      context: ./backend
-      dockerfile: packages/core/Dockerfile
-    image: ${DOCKERHUB_USERNAME:-local}/workjournal-core:${WORKJOURNAL_VERSION:-dev}
+    image: web83/workjournal-core:latest
     environment:
       HOST: 0.0.0.0
       PORT: "3737"
       WORKJOURNAL_HOME: /data
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      # Host projects directory; bind-mounted into the core container at
-      # /host-projects. Compose fails fast when this is unset.
-      PROJECTS_DIRECTORY: ${PROJECTS_DIRECTORY:?Set PROJECTS_DIRECTORY to your host projects folder, e.g. PROJECTS_DIRECTORY=C:/Users/you/code}
+      # In-container mount point (host paths map to /host-projects/... inside
+      # the core container; see backend/packages/core/src/db/paths.ts).
+      PROJECTS_DIRECTORY: /host-projects
     volumes:
       - workjournal-data:/data
-      # Only the core service touches project folders (per-project .workjournal
-      # databases live here). The MCP adapter and dashboard are HTTP-only.
-      - ${PROJECTS_DIRECTORY:?Set PROJECTS_DIRECTORY to your host projects folder}:/host-projects
+      # Host projects directory, bind-mounted at /host-projects. Only the core
+      # service touches project folders; the MCP adapter and dashboard are
+      # HTTP-only. Compose fails fast when this is unset — never fall back to
+      # an unrelated (empty) directory.
+      - type: bind
+        source: ${PROJECTS_HOST_DIRECTORY:?Set PROJECTS_HOST_DIRECTORY to your host projects folder, e.g. PROJECTS_HOST_DIRECTORY=C:/Users/you/code}
+        target: /host-projects
     # No ports: the core API and SQLite stay reachable only inside the Compose
     # network (web and mcp reach it at http://core:3737).
     healthcheck:
@@ -44,10 +49,7 @@ services:
     restart: unless-stopped
 
   mcp:
-    build:
-      context: ./backend
-      dockerfile: packages/mcp-adapter/Dockerfile
-    image: ${DOCKERHUB_USERNAME:-local}/workjournal-mcp:${WORKJOURNAL_VERSION:-dev}
+    image: web83/workjournal-mcp:latest
     environment:
       MCP_TRANSPORT: http
       MCP_HTTP_HOST: 0.0.0.0
@@ -74,9 +76,7 @@ services:
     restart: unless-stopped
 
   web:
-    build:
-      context: ./frontend
-    image: ${DOCKERHUB_USERNAME:-local}/workjournal-web:${WORKJOURNAL_VERSION:-dev}
+    image: web83/workjournal-web:latest
     environment:
       # vite preview proxies /api to the core service over the Compose network.
       VITE_CORE_URL: http://core:3737

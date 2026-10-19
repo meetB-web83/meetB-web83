@@ -386,11 +386,14 @@ describe('docker-mode registration and browse (pathContext with real container r
 });
 
 describe('compose and startup validation', () => {
-  it('compose mounts PROJECTS_DIRECTORY at /host-projects in the core service only', () => {
+  it('compose mounts the host projects directory at /host-projects in the core service only', () => {
     const compose = readFileSync(fileURLToPath(new URL('../../../docker-compose.yml', import.meta.url)), 'utf8');
-    expect(compose).toContain('PROJECTS_DIRECTORY:');
+    // Container-side: PROJECTS_DIRECTORY is the fixed mount point. Host-side:
+    // PROJECTS_HOST_DIRECTORY is the bind source and must fail fast when unset
+    // (never silently mount an unrelated/empty directory).
+    expect(compose).toContain('PROJECTS_DIRECTORY: /host-projects');
     expect(compose).toContain('/host-projects');
-    expect(compose).toContain('${PROJECTS_DIRECTORY:?');
+    expect(compose).toContain('${PROJECTS_HOST_DIRECTORY:?');
     // The mount belongs to core, not to the HTTP-only mcp adapter.
     const mcpSection = compose.slice(compose.indexOf('  mcp:'));
     expect(mcpSection).not.toContain('/host-projects');
