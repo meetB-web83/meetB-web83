@@ -9,6 +9,7 @@
     ".": "./dist/index.js",
     "./query": "./dist/tools/query.js",
     "./config": "./dist/config.js",
+    "./stdio": "./dist/stdio.js",
     "./validate-headers": "./dist/validate-headers.js",
     "./http-server": "./dist/http-server.js",
     "./server-factory": "./dist/server-factory.js"

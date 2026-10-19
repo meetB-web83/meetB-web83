@@ -5,7 +5,15 @@ export { createDatabase, type Database } from './db/connection.js';
 export { createBackup } from './db/backup.js';
 export { runMigrations, ensureMigrationsDir } from './db/migrate.js';
 export { ProjectDbResolver, normalizeRootPath, projectDbPath, type ProjectScope } from './db/project-db.js';
-export { buildServer } from './http/server.js';
+export { buildServer, type BuildServerOptions } from './http/server.js';
+export {
+  loadUiAssetsFromDir,
+  embeddedUiAssets,
+  uiAssetsFromFiles,
+  type UiAssets,
+  type UiAsset,
+} from './ui/ui-assets.js';
+export { contentTypeFor } from './ui/content-type.js';
 export { buildServices, type CoreServices } from './http/services.js';
 export { TaskService, type CreateTaskData, type TaskUpdateData } from './domain/task-service.js';
 export { DashboardService } from './domain/dashboard-service.js';

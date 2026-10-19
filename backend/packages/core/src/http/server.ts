@@ -12,7 +12,9 @@ import { registerDecisionRoutes } from './routes/decisions.js';
 import { registerResumeRoutes } from './routes/resume.js';
 import { registerExportRoutes } from './routes/export.js';
 import { registerDashboardRoutes } from './routes/dashboard.js';
+import { registerUiRoutes } from './ui.js';
 import { validateProjectsMount } from '../db/paths.js';
+import type { UiAssets } from '../ui/ui-assets.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -26,7 +28,16 @@ declare module 'fastify' {
   }
 }
 
-export function buildServer(db: Database, config: Config) {
+export interface BuildServerOptions {
+  /**
+   * When provided, the dashboard is served from these in-memory assets on the
+   * same origin as the API (`--with-ui` / SEA executable). Omitted → API-only,
+   * exactly the previous behaviour.
+   */
+  ui?: UiAssets | null;
+}
+
+export function buildServer(db: Database, config: Config, options: BuildServerOptions = {}) {
   // Startup gate: PROJECTS_DIRECTORY configured but the container mount is
   // missing/unreadable → actionable failure before any request is served.
   const mountError = validateProjectsMount();
@@ -70,6 +81,8 @@ export function buildServer(db: Database, config: Config) {
   // Liveness probe for container health checks: no DB access, no auth (root
   // AGENTS.md: no authentication; the route reveals nothing).
   server.get('/health', async () => ({ status: 'ok' }));
+
+  if (options.ui) registerUiRoutes(server, options.ui);
 
   return server;
 }

@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@workjournal/core": "workspace:*",
+    "@workjournal/mcp-adapter": "workspace:*",
     "@workjournal/shared": "workspace:*",
     "commander": "^12.1.0"
   },

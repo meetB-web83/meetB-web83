@@ -35,6 +35,9 @@ importers:
       '@workjournal/core':
         specifier: workspace:*
         version: link:../core
+      '@workjournal/mcp-adapter':
+        specifier: workspace:*
+        version: link:../mcp-adapter
       '@workjournal/shared':
         specifier: workspace:*
         version: link:../shared
