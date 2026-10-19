@@ -3,6 +3,7 @@ import { resolve, dirname } from 'node:path';
 import { createDatabase, type Database } from './connection.js';
 import { runMigrations } from './migrate.js';
 import { NotFoundError } from '@workjournal/shared';
+import { normalizeProjectPath } from './paths.js';
 
 /**
  * The registry stores project root paths the way they were typed in (for example the
@@ -20,6 +21,81 @@ export function normalizeRootPath(rootPath: string): string {
 /** `<project-root>/.workjournal/workjournal.db` — the project's source of truth. */
 export function projectDbPath(rootPath: string): string {
   return resolve(normalizeRootPath(rootPath), '.workjournal', 'workjournal.db');
+}
+
+/**
+ * Normalise a stored root_path for deterministic comparison across path
+ * forms (git-style `/c/...` vs drive-style `C:/...`, trailing slashes, etc.).
+ * Both sides are run through normalizeRootPath → normalizeProjectPath.
+ */
+export function semanticRootPath(path: string): string {
+  return normalizeProjectPath(normalizeRootPath(path));
+}
+
+/**
+ * Read the `projects` table from an existing project DB file without creating
+ * files, running migrations or caching the connection (root AGENTS.md: the
+ * project DB is authoritative). Returns [] when the file is missing, the
+ * `projects` table has no rows yet, or any read failure occurs — registration
+ * should fall back to a fresh uuid in those cases.
+ *
+ * The caller passes the preferred root path (the newly-typed registration path) which is
+ * used to favour a row whose stored root_path (normalised) matches the incoming
+ * path; otherwise the first row by creation order is chosen.
+ */
+export function readProjectRows(dbPath: string): Array<Record<string, any>> {
+  if (!existsSync(dbPath)) return [];
+  let db: Database;
+  try {
+    db = createDatabase(dbPath);
+  } catch {
+    return [];
+  }
+  try {
+    return db.raw
+      .prepare('SELECT * FROM projects ORDER BY created_at ASC, id ASC')
+      .all() as Array<Record<string, any>>;
+  } catch {
+    return []; // DB file exists but migrations never ran → no projects table
+  } finally {
+    try {
+      db.raw.close();
+    } catch {
+      // already closed
+    }
+  }
+}
+
+/**
+ * Given the rows from readProjectRows() and a preferred root path (the
+ * newly-typed registration path), return the single authoritative row or null.
+ * A row whose normalised root_path matches the preferred path wins; otherwise
+ * the first (oldest) row by creation order is chosen.
+ */
+export function pickProjectRow(
+  rows: Array<Record<string, any>>,
+  preferredRootPath: string
+): Record<string, any> | null {
+  if (!rows || rows.length === 0) return null;
+  const preferred = semanticRootPath(preferredRootPath);
+  const match = rows.find((r) => semanticRootPath(r.root_path) === preferred);
+  if (match) return match;
+  // No exact spelling match — oldest wins.
+  return rows[0];
+}
+
+/**
+ * Given a preferred root path (newly-typed registration folder), read the
+ * authoritative project row from an existing project DB or return null if
+ * there is none / the DB cannot be read.  Never creates files or runs migrations
+ * (root AGENTS.md: the project DB is authoritative and lazily initialized).
+ */
+export function readExistingProjectRow(
+  dbPath: string,
+  preferredRootPath: string
+): Record<string, any> | null {
+  const rows = readProjectRows(dbPath);
+  return pickProjectRow(rows, preferredRootPath);
 }
 
 export interface ProjectScope {

@@ -8,14 +8,15 @@ import { ResumeBuilder } from '../resume/resume-builder.js';
 import { JsonExporter } from '../export/json-export.js';
 import { MarkdownExporter } from '../export/markdown-export.js';
 import type { Services } from '../domain/services.js';
+import type { PathContext } from '../db/paths.js';
 
 export type CoreServices = Services;
 
 /** Build a service bundle bound to one database (the registry, or one project DB). */
-export function buildServices(db: Database): Services {
+export function buildServices(db: Database, pathContext: PathContext | null = null): Services {
   return {
     tasks: new TaskService(db),
-    projects: new ProjectService(db),
+    projects: new ProjectService(db, pathContext),
     checkpoints: new CheckpointService(db),
     decisions: new DecisionService(db),
     events: new EventService(db),

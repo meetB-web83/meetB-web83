@@ -12,6 +12,7 @@ import { registerDecisionRoutes } from './routes/decisions.js';
 import { registerResumeRoutes } from './routes/resume.js';
 import { registerExportRoutes } from './routes/export.js';
 import { registerDashboardRoutes } from './routes/dashboard.js';
+import { validateProjectsMount } from '../db/paths.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -26,6 +27,11 @@ declare module 'fastify' {
 }
 
 export function buildServer(db: Database, config: Config) {
+  // Startup gate: PROJECTS_DIRECTORY configured but the container mount is
+  // missing/unreadable → actionable failure before any request is served.
+  const mountError = validateProjectsMount();
+  if (mountError) throw new Error(mountError);
+
   const server = Fastify({
     logger: { level: config.logLevel },
     bodyLimit: 1_048_576,
@@ -35,7 +41,7 @@ export function buildServer(db: Database, config: Config) {
 
   server.decorate('registryDb', db);
   server.decorate('projectDbs', projectDbs);
-  server.decorate('services', buildServices(db));
+  server.decorate('services', buildServices(db, config.pathContext));
   server.decorate('config', config);
 
   server.addHook('onClose', async () => {

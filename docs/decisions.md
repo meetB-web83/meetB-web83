@@ -159,3 +159,23 @@ allowing any OCI registry via repository variables. `vite preview` reuses the
 existing frontend toolchain instead of adding nginx (proxy config stays in
 `vite.config.ts` alongside the dev proxy). The web image keeps dev dependencies
 because `vite preview` itself is a dev dependency — documented tradeoff.
+
+## D-011 — PROJECTS_DIRECTORY, path mapping, and project identity in Docker (2026-10-19)
+
+**Decision.** The core service uses a path-resolution module (`packages/core/src/db/paths.ts`)
+that maps host paths (from `PROJECTS_DIRECTORY`) to the container mount point
+`/host-projects`. The mapping is bijective and validated at startup: the container
+mount must exist, be a directory, and be readable/writable. Registration stores the
+**container path** as `root_path` in the registry; the dashboard displays host paths
+via reverse mapping. Re-registration is idempotent by normalized container path.
+Moving/renaming/deleting a folder on the host leaves the old project `unavailable`
+and creates a new project ID for the new location — history stays with the folder.
+Per-project `.workjournal/` artifacts live in the project folder itself (via the
+bind mount), so backing up the project folder preserves its complete history.
+
+**Reason.** Root AGENTS.md: storage is per project, the registry is an index, and a
+missing folder must not crash anything. The path module centralizes all mapping
+logic so HTTP routes, MCP tools, and tests share the same behavior. Startup
+validation fails fast with actionable Docker Desktop file-sharing guidance. The
+identity rule (history follows the folder) matches user expectations and keeps the
+registry a rebuildable index.

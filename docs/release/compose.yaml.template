@@ -37,8 +37,14 @@ services:
       PORT: "3737"
       WORKJOURNAL_HOME: /data
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Host projects directory; bind-mounted into the core container at
+      # /host-projects. Compose fails fast when this is unset.
+      PROJECTS_DIRECTORY: ${PROJECTS_DIRECTORY:?Set PROJECTS_DIRECTORY to your host projects folder, e.g. PROJECTS_DIRECTORY=C:/Users/you/code}
     volumes:
       - workjournal-data:/data
+      # Only the core service touches project folders (per-project .workjournal
+      # databases live here). The MCP adapter and dashboard are HTTP-only.
+      - ${PROJECTS_DIRECTORY:?Set PROJECTS_DIRECTORY to your host projects folder}:/host-projects
     # No ports: the core API and SQLite stay reachable only inside the
     # Compose network (web and mcp reach it at http://core:3737).
     healthcheck:

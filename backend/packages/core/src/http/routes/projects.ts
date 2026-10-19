@@ -13,6 +13,7 @@ import {
   ValidationError,
 } from '@workjournal/shared';
 import { normalizeRootPath } from '../../db/project-db.js';
+import { toContainerPath, fromContainerPath } from '../../db/paths.js';
 import { validateBody, validateQuery, operationInput } from '../hooks/validation.js';
 import { buildServices } from '../services.js';
 
@@ -24,7 +25,7 @@ function filesystemRoots(): string[] {
   if (process.platform === 'win32') {
     const roots: string[] = [];
     for (let code = 65; code <= 90; code++) {
-      const drive = `${String.fromCharCode(code)}:${sep}`;
+      const drive = `${String.fromCharCode(code)}${sep}`;
       if (existsSync(drive)) roots.push(drive);
     }
     return roots;
@@ -33,7 +34,8 @@ function filesystemRoots(): string[] {
 }
 
 export async function registerProjectRoutes(server: FastifyInstance) {
-  const registry = buildServices(server.registryDb);
+  const registry = buildServices(server.registryDb, server.config.pathContext);
+  const pathContext = server.config.pathContext;
 
   /** Registry rows annotated with folder availability (dashboard "unavailable" state). */
   const withAvailability = (row: Record<string, any>) => ({
@@ -41,12 +43,18 @@ export async function registerProjectRoutes(server: FastifyInstance) {
     available: server.projectDbs.isAvailable(row.root_path),
   });
 
+  /** Display form of a stored root path: host path when a mapping is configured. */
+  const displayPath = (containerPath: string) =>
+    fromContainerPath(pathContext, containerPath);
+
   server.post('/', { preHandler: [validateBody(createProjectSchema)] }, async (request, reply) => {
     const input = request.body as CreateProjectInput;
-    const rootPath = normalizeRootPath(input.root_path);
-    if (!existsSync(rootPath)) {
+    // Map host → container path (no-op in native dev) and verify the folder
+    // exists where the core service can actually see it.
+    const containerPath = toContainerPath(pathContext, input.root_path);
+    if (!existsSync(containerPath)) {
       throw new ValidationError(
-        `Project folder ${rootPath} does not exist. Create or choose an existing folder before registering it.`,
+        `Project folder ${displayPath(containerPath)} does not exist. Create or choose an existing folder before registering it.`,
       );
     }
 
@@ -75,22 +83,52 @@ export async function registerProjectRoutes(server: FastifyInstance) {
    * Loopback-only like every other route (no auth in Release 1 per AGENTS.md).
    * Never follows `..` outside the resolved directory, never returns file
    * contents, never logs paths (secret filtering).
+   *
+   * Discovery rule (deterministic): with PROJECTS_DIRECTORY configured, only
+   * immediate children of the projects root are listed — deeper nesting is
+   * never treated as independent projects. Without it (native dev), the
+   * whole filesystem is browsable as before.
    */
   server.get('/browse', { preHandler: [validateQuery(browseDirectoriesQuerySchema)] }, async (request) => {
     const query = request.query as BrowseDirectoriesQuery;
     const raw = (query.path ?? '').trim();
+    const needle = (query.search ?? '').trim().toLowerCase();
 
-    // No path: filesystem roots (drives on Windows, `/` elsewhere).
+    // No path: the projects root when configured, filesystem roots otherwise.
     if (!raw) {
-      const needle = (query.search ?? '').trim().toLowerCase();
-      const entries = filesystemRoots()
-        .filter((root) => !needle || root.toLowerCase().includes(needle))
+      if (!pathContext) {
+        const entries = filesystemRoots()
+          .filter((root) => !needle || root.toLowerCase().includes(needle))
+          .slice(0, BROWSE_LIMIT)
+          .map((root) => ({ name: root, path: root, has_workjournal: existsSync(join(root, '.workjournal')) }));
+        return browseDirectoriesResponseSchema.parse({ current_path: null, parent_path: null, entries });
+      }
+      const root = pathContext.containerRoot;
+      const names = readdirSync(root).filter((name) => statSync(join(root, name)).isDirectory());
+      const entries = names
+        .filter((name) => !needle || name.toLowerCase().includes(needle))
+        .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
         .slice(0, BROWSE_LIMIT)
-        .map((root) => ({ name: root, path: root, has_workjournal: existsSync(join(root, '.workjournal')) }));
-      return browseDirectoriesResponseSchema.parse({ current_path: null, parent_path: null, entries });
+        .map((name) => {
+          const containerEntry = join(root, name);
+          return {
+            name,
+            path: fromContainerPath(pathContext, containerEntry),
+            has_workjournal: existsSync(join(containerEntry, '.workjournal')),
+          };
+        });
+      return browseDirectoriesResponseSchema.parse({
+        current_path: fromContainerPath(pathContext, root),
+        parent_path: null,
+        entries,
+      });
     }
 
-    const dir = resolve(normalizeRootPath(raw));
+    // Explicit path: accept host or container form; map to the container path
+    // for reading. Outside the configured root → actionable rejection (never
+    // silently mapped to another project).
+    const containerDir = toContainerPath(pathContext, raw);
+    const dir = resolve(containerDir);
     // Defense in depth: `resolve` already collapses `..`, but reject anything
     // that still escapes (e.g. symlink-style games) by requiring containment.
     const root = parse(dir).root;
@@ -110,7 +148,6 @@ export async function registerProjectRoutes(server: FastifyInstance) {
       throw new ValidationError(`Browse path ${raw} is not a folder.`);
     }
 
-    const needle = (query.search ?? '').trim().toLowerCase();
     let names: string[];
     try {
       names = readdirSync(dir);
@@ -130,14 +167,18 @@ export async function registerProjectRoutes(server: FastifyInstance) {
         }
       })
       .map((name) => {
-        const full = join(dir, name);
-        return { name, path: full, has_workjournal: existsSync(join(full, '.workjournal')) };
+        const containerEntry = join(dir, name);
+        return {
+          name,
+          path: fromContainerPath(pathContext, containerEntry),
+          has_workjournal: existsSync(join(containerEntry, '.workjournal')),
+        };
       });
 
     const parent = dirname(dir);
     return browseDirectoriesResponseSchema.parse({
-      current_path: dir,
-      parent_path: parent === dir ? null : parent,
+      current_path: fromContainerPath(pathContext, dir),
+      parent_path: parent === dir ? null : fromContainerPath(pathContext, parent),
       entries,
     });
   });

@@ -96,22 +96,131 @@ Any other MCP client that speaks Streamable HTTP works the same way. Clients
 that only speak the legacy stdio transport cannot use this endpoint — run the
 stdio adapter natively instead (see below).
 
-## Project folders (important)
+## Project folders and `PROJECTS_DIRECTORY` (important)
+
+### How it works
 
 WorkJournal stores each project's database at `<project-root>/.workjournal/`.
-The core service sees container paths, so folders you want to track must be
-bind-mounted into the core container. Create `docker-compose.override.yml`
-next to `compose.yaml`:
+When running in Docker, the **core service** is the only component that touches
+project folders — it must be able to read and write those folders. The dashboard
+and MCP adapter communicate with core over HTTP and never touch the filesystem.
 
-```yaml
-services:
-  core:
-    volumes:
-      - /Users/you/code:/projects
+To make host folders visible to the core container, set the `PROJECTS_DIRECTORY`
+environment variable. Compose then bind-mounts that directory into the core
+container at `/host-projects` (read-write). The dashboard folder picker and
+registration API accept both host paths (e.g., `C:/Users/you/code/my-repo`) and
+container paths (`/host-projects/my-repo`); they are mapped transparently.
+
+### Setting `PROJECTS_DIRECTORY`
+
+| Platform | Example value |
+|---|---|
+| Windows (Docker Desktop) | `C:/Users/you/code` |
+| macOS (Docker Desktop) | `/Users/you/code` |
+| Linux (Docker Engine) | `/home/you/code` |
+
+**Windows note:** Use forward slashes (`/`) or double backslashes (`\\`) in
+the `.env` file. The value must point to an existing directory.
+
+**Docker Desktop file sharing (Windows/macOS):** The `PROJECTS_DIRECTORY` folder
+**must** be added to Docker Desktop → Settings → Resources → File Sharing
+(before starting Compose). Without this, the bind mount fails and core will
+report an actionable error at startup:
+
+```
+PROJECTS_DIRECTORY is set (C:/Users/you/code) but /host-projects is not
+readable/writable inside this container. Docker Desktop: enable the
+drive/folder under Settings → Resources → File sharing, then recreate the core
+container.
 ```
 
-Restart, then register the project (dashboard → New project) with the container
-path, e.g. `/projects/my-repo`. The override file is never touched by upgrades.
+### Registration flow
+
+1. Start the stack with `PROJECTS_DIRECTORY` set.
+2. In the dashboard → **New Project**, either:
+   - Click **Browse** and pick a folder under the mounted root, **or**
+   - Enter the host path (e.g., `C:/Users/you/code/my-repo`) or the container
+     path (e.g., `/host-projects/my-repo`).
+3. The core service:
+   - Maps the supplied path to its container form (`/host-projects/...`).
+   - Verifies the folder exists inside the container.
+   - Creates `<folder>/.workjournal/workjournal.db` (lazy initialization).
+   - Registers the project in the global registry with the **container path**
+     as `root_path`.
+
+Re-registering the same folder (any path form: host, container, with/without
+trailing slash) returns the **same project ID** — initialization is idempotent.
+
+### Identity rules
+
+| Concept | Rule |
+|---|---|
+| **Project ID** | Stable UUID (e.g., `oroview-3f9a`). Never contains `_`. |
+| **Project name** | Human-readable label. Can change; does not affect identity. |
+| **Root path** | The **container path** (`/host-projects/...`) is the canonical key. Two folders with the same name under different parents are distinct projects. |
+| **History stays with the folder** | If you move/rename a folder on the host, it registers as a **new project** (new ID, new `.workjournal/`). The old project remains in the registry, marked `available: false`. Its tasks, events, checkpoints, and decisions are preserved in the old folder's `.workjournal/`. |
+
+### Move / rename / delete behavior
+
+| Host action | Result |
+|---|---|
+| **Move folder** to a different parent (outside `PROJECTS_DIRECTORY`) | Old project → `unavailable`. New location → registers as a new project with new ID. |
+| **Rename folder** in place | Same as move: old ID unavailable, new registration = new ID. |
+| **Delete folder** | Project marked `unavailable`. Reads/writes against it return 404 with an actionable message. Other projects are unaffected. |
+| **Restore folder** at original path | Re-registration reuses the same project ID (idempotent by `root_path`). |
+
+### Backup of volume + project artifacts
+
+Two layers of persistence exist:
+
+1. **Registry volume (`workjournal-data`)** — holds the global registry SQLite
+   (`registry.db` with `registry_projects`, `registry_idempotency`). Backed up
+   by stopping core and archiving the volume (see "Persistent data and backups"
+   below).
+2. **Per-project `.workjournal/` folders** — each project has its own SQLite
+   database, WAL files, and any exports. These live **inside the project folder**
+   on the host (via the `/host-projects` mount). To fully back up a project,
+   back up the entire project folder (including `.workjournal/`). Restoring a
+   project means placing the folder back under `PROJECTS_DIRECTORY` and
+   re-registering it (same ID, history intact).
+
+**Recommended backup strategy:**
+
+```bash
+# 1. Stop core to quiesce the registry volume
+docker compose stop core
+
+# 2. Archive the registry volume
+docker run --rm -v workjournal_workjournal-data:/data -v "$(pwd)":/backup alpine \
+  tar czf /backup/workjournal-registry-backup.tgz -C /data .
+
+# 3. Archive each project folder (includes .workjournal/)
+tar czf workjournal-project-myapp.tgz -C /host/projects myapp
+
+# 4. Restart
+docker compose start core
+```
+
+### Host vs Container Path Responsibilities
+
+| Responsibility | Host Path (`C:/Users/...` or `/home/...`) | Container Path (`/host-projects/...`) |
+|---|---|---|
+| **User input (dashboard, API, MCP)** | ✅ Accepted | ✅ Accepted |
+| **Display (dashboard, API responses)** | ✅ Used for display | — |
+| **Filesystem operations (core only)** | — | ✅ Exclusive |
+| **Registry storage (`root_path`)** | — | ✅ Stored as container path |
+| **Project DB location** | — | `<container-path>/.workjournal/` |
+| **Docker Compose mount** | Source of bind mount | Target: `/host-projects` |
+| **Docker Desktop file sharing** | Must be shared | — |
+
+### Path mapping examples
+
+| `PROJECTS_DIRECTORY` | User supplies | Core sees (`root_path`) | Dashboard displays |
+|---|---|---|---|
+| `C:/Users/you/code` | `C:/Users/you/code/myapp` | `/host-projects/myapp` | `C:/Users/you/code/myapp` |
+| `C:/Users/you/code` | `/host-projects/myapp` | `/host-projects/myapp` | `C:/Users/you/code/myapp` |
+| `/home/you/code` | `/home/you/code/myapp` | `/host-projects/myapp` | `/home/you/code/myapp` |
+| (unset, native dev) | `/any/native/path` | `/any/native/path` | `/any/native/path` |
 
 ## Persistent data and backups
 
