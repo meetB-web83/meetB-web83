@@ -18,15 +18,7 @@
     },
     "workjournal": {
       "type": "local",
-      "command": [
-        "pnpm",
-        "--dir",
-        "C:/Users/meet.bhesaniya_moont/Documents/PROJECTS/PERSONAL_workJournal/backend/packages/mcp-adapter",
-        "start"
-      ],
-      "environment": {
-        "WORKJOURNAL_CORE_URL": "http://127.0.0.1:3737"
-      },
+      "command": ["workjournal.exe mcp", "--with-ui"],
       "disabled": false,
       "timeout": 30000
     }

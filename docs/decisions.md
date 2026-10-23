@@ -227,3 +227,163 @@ under the CJS output format the SEA requires; the explicit `define` documents
 the one intentional `import.meta` use instead of hiding the warning. Note: the
 task's acceptance criteria said "D-011", but that ID was taken by the Docker
 path-mapping decision; recorded as D-012 with meetb's agreement (2026-10-19).
+
+## D-013 — MCP self-starts the core (autostart) and stops it last-one-out (2026-10-21)
+
+**Decision.** The stdio MCP adapter starts the core service itself when it is
+down, and an auto-started service stops itself once no client remains.
+Supersedes the root AGENTS.md "no auto-start in Release 1" rule — the rewrite
+was explicitly authorized by meetb in-session (2026-10-21), along with these
+settled parameters:
+
+- **Autostart is on by default for stdio.** `workjournal mcp` probes
+  `GET {WORKJOURNAL_CORE_URL}/health`; if it fails, it spawns a DETACHED
+  `start [--with-ui]` (env `WORKJOURNAL_AUTOSTART=1`), logging to
+  `<home>/service.log`, and polls `/health` for `MCP_AUTOSTART_TIMEOUT_MS`
+  (default 10s) before serving. `mcp --no-autostart` / `MCP_AUTOSTART=0`
+  restore the previous fail-with-an-actionable-error behavior; a healthy
+  service is always attached to without restarting (the one exception:
+  D-014's `--with-ui` override below). `mcp --with-ui` is the
+  whole UI toggle (it rides on the MCP server command line in
+  `opencode.json`); if the already-running core lacks the dashboard, the
+  adapter attaches and prints a stderr note instead of restarting (no
+  downtime for concurrent agents) *(superseded in part by D-014: with
+  `--with-ui` that UI-less core is now stopped and replaced; this note
+  remains as the guard-rail fallback, and plain `mcp` still attaches
+  without restarting)*.
+- **Spawn target** (`mcp-adapter/src/autostart.ts`): the SEA executable
+  re-runs ITSELF (basename `workjournal(.exe)`, as produced by
+  `pnpm build:exe`) — the no-Node path. Source/dev runs (`node`/`tsx` …)
+  cannot re-launch themselves safely, so they need `MCP_AUTOSTART_ENTRY`
+  (path to the CLI entry) and otherwise warn and fail actionably. Tests use
+  the entry form; Docker/HTTP mode never autostarts (the core is a separate
+  container with its own healthcheck).
+- **Heartbeat + last-one-out auto-stop.** Every stdio adapter writes
+  `<home>/mcp-heartbeats/<pid>.json`, touches it every
+  `MCP_HEARTBEAT_SECONDS` (default 30s), unlinks it on orderly exit
+  (stdin close, SIGINT/SIGTERM, process exit), and unrefs its timer so the
+  heartbeat never keeps the process alive. A core started with
+  `WORKJOURNAL_AUTOSTART=1` runs a sweeper (`core/src/runtime/idle-sweeper.ts`)
+  polling every `AUTO_STOP_POLL_SECONDS` (default 60s): no heartbeat file
+  fresh within `AUTO_STOP_FRESH_SECONDS` (default 90s) for
+  `AUTO_STOP_IDLE_SECONDS` (default 300s = the 5-minute window meetb chose,
+  at 1-minute polls, instead of 10) → close the server, remove `service.pid`,
+  exit 0. Hard-killed adapters leave stale files that age out of the fresh
+  window, so a crash still releases the service (exercised for real on
+  Windows, where `child.kill()` skips signal handlers). The sweeper is
+  **gated on the flag**: manually started services and Docker are never
+  auto-stopped — only `workjournal stop` ends those.
+- **Two lifecycle fixes found on the way:** (1) `start` now writes the PID
+  file only AFTER a successful `listen` and answers `EADDRINUSE` with an
+  actionable message — two adapters racing to autostart resolve to one
+  service with an intact PID file (the loser exits without clobbering it);
+  (2) `stop` (and `start`) resolve `~/.workjournal` via `workjournalHome()`
+  (`HOME`/`USERPROFILE` expansion) — previously `stop` resolved the raw `~/…`
+  against the CWD and could never find the PID file with the default env.
+  The CLI entry also switched from `parse()` to `parseAsync().catch(…)` so
+  async action failures exit deterministically with code 1.
+
+**Reason.** meetb wants an agent's MCP connection to bring the whole process
+up with it — zero manual steps before tools work — with the dashboard
+available simply by adding `--with-ui` to the MCP command. Detached (not a
+child) spawn is required: WorkJournal exists to preserve continuity across
+agent sessions, so the service must outlive them. Symmetry was then required
+back: "if it is auto starting it should auto stop" — hence last-one-out with
+an idle window, so nothing lingers after the last agent while manually
+started services keep their explicit lifecycle. The flag gate keeps Docker
+and manual runs byte-identical to before; tests cover the autostart,
+heartbeat keep-alive, auto-stop, both guard rails, the UI-conflict note and
+the manual-start exemption (`tests/integration/mcp-autostart.test.ts`,
+`idle-sweeper.test.ts` — suite green at 111 tests), and `pnpm smoke:exe`
+verifies the same flow against the actual executable.
+
+## D-014 — `mcp --with-ui` replaces a running core that lacks the dashboard (2026-10-21)
+
+**Decision.** When the stdio adapter serves `--with-ui` against an
+ALREADY-HEALTHY core whose `GET /` is not dashboard HTML, it stops that core
+and spawns a `--with-ui` replacement — superseding D-013's "attach and print
+a note instead of restarting" bullet (the note survives as the guard-rail
+fallback below). Scope choices confirmed by meetb in-session (2026-10-21):
+
+- **Any origin counts.** The running core is replaced whether it was started
+  by hand (`workjournal start`) or by another adapter — meetb explicitly
+  chose "any core without the UI", carving out the root AGENTS.md rule that
+  manually started services are never auto-stopped, and accepting that a
+  manual core is thereby replaced by an AUTO-STARTED one to which
+  last-one-out then applies (it disappears 5 minutes after the last MCP
+  client leaves, unlike the manual core it replaced). Cores with no local
+  `service.pid` (Docker/remote) cannot be identified and are never touched.
+- **`--no-autostart` / `MCP_AUTOSTART=0` disables the override** (attach +
+  note stays): the flag promises to keep this adapter off the core's
+  lifecycle, and a restart is both a stop and a start.
+- **Guard rails degrade to attach-and-note, never to failure:** no spawn
+  target in this runtime (source run without `MCP_AUTOSTART_ENTRY`), no
+  readable `<home>/service.pid`, or the kill not taking effect. An MCP
+  session that can attach always serves.
+- **Kill sequence:** SIGTERM (the POSIX core closes cleanly; Windows
+  terminates either way) → poll `/health` until the fetch FAILS, meaning the
+  listener closed and the port is free for the replacement (the EADDRINUSE
+  barrier) → SIGKILL + one more wait if it still answered after 8s → remove
+  the stale `service.pid` only if it still names the killed PID (never
+  clobber a racing adapter's replacement PID file) → the existing detached
+  spawn (`start --with-ui`, `WORKJOURNAL_AUTOSTART=1`, `service.log`,
+  `MCP_AUTOSTART_TIMEOUT_MS` health wait). Concurrent `--with-ui` adapters
+  racing resolve the same way as the original autostart race: `ESRCH` on the
+  kill counts as already-done, the loser's spawn hits `EADDRINUSE` and exits
+  without clobbering the winner's PID file.
+- **Consequences:** other clients see a brief gap (in-flight calls fail;
+  later calls transparently hit the replacement on the same URL; an open
+  dashboard tab needs a refresh). If the replacement never comes up after
+  the kill (port stolen in the gap, missing embedded assets), the adapter
+  fails with the standard actionable error + log path — it cannot fall back,
+  because the old core is already gone.
+
+**Reason.** meetb wants `--with-ui` on the MCP command line to be the whole
+UI switch: adding it to `opencode.json` should bring the dashboard up even
+when an earlier session (or the user) left an API-only core running — no
+manual `workjournal stop` first. The change lives entirely in
+`mcp-adapter/src/autostart.ts` (`ensureDashboard`, `stopRunningCore`,
+`spawnCoreDetached`); `service.pid` stays a plain-integer file — no format
+change is needed once the scope is "any core". Tests:
+`tests/integration/mcp-autostart.test.ts` §3 was rewritten into four cases
+(replacement end-to-end incl. last-one-out of the replacement, the
+`--no-autostart` opt-out, no-restart when the dashboard is already served,
+missing-PID-file fallback) — suite green at 114 tests, typecheck and lint
+clean.
+
+## D-015 — `status` and the MCP attach log report the current PID (2026-10-21)
+
+**Decision.** `workjournal status` prints the PID of the running core next
+to the reachability line — `WorkJournal core service is running at
+http://127.0.0.1:3737 (pid 29172)` — read from `<home>/service.pid` and
+cross-checked with `process.kill(pid, 0)` (EPERM counts as alive, ESRCH as
+gone). The HTTP probe stays the source of truth for liveness; the PID only
+decorates whichever branch the probe falls in, and the two PID-file
+mismatch cases are called out instead of being silently glossed over:
+
+- running + stale PID file → `(stale service.pid: pid N is not running)`;
+- running + no PID file (foreign/Docker core) →
+  `(no service.pid in <home> — pid unknown)`;
+- not running + PID file present → a second line says whether that PID is
+  stale (`no longer exists`) or alive-but-not-answering (still starting up,
+  or the PID belongs to another process).
+
+**Addition, same session:** the stdio adapter also logs what it joins —
+every time it attaches to an ALREADY-RUNNING core it writes
+`connecting to existing core running at http://127.0.0.1:3737 (pid: 29172)`
+to stderr before any D-014 decision follows (stdout stays reserved for the
+JSON-RPC stream). The number is printed only when `<home>/service.pid` names
+a live process — otherwise the line says `(pid: unknown)`, so a stale file
+never makes the log lie. Implemented in `mcp-adapter/src/autostart.ts`
+(`ensureCore`'s healthy branch + `describeLocalPid`).
+
+Requested by meetb (2026-10-21) as a monitoring aid, after he asked whether
+`status` shows the PID (it didn't — it was a bare HTTP probe that never
+opened the file). CLI-only: `packages/cli/src/commands/status.ts` uses the
+existing `readPidFile`/`workjournalHome()` helpers; no core/DB involvement
+and `stop` is unchanged. Tests: `tests/integration/cli-status.test.ts`
+(5 cases — pid on the running line, stale-while-running,
+pid-unknown-while-running, stale-while-down, alive-but-unreachable) plus the
+attach-log assertions in `mcp-autostart.test.ts` §3 (pid on attach,
+`(pid: unknown)` fallback) — suite green at 119 tests, typecheck and lint
+clean.

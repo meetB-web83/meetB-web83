@@ -39,6 +39,17 @@ cd ../frontend && pnpm install
 pnpm dev                     # dashboard (127.0.0.1:5173, proxies /api to core)
 ```
 
+**Self-starting MCP (D-013):** the SEA executable's `workjournal mcp` probes
+the core and starts it itself when it is down — add `--with-ui` to serve the
+dashboard on the same port (`--no-autostart` keeps the old error behaviour).
+If a core is already running **without** the dashboard, `mcp --with-ui` stops
+it and starts a replacement that serves the UI (D-014); `--no-autostart`
+keeps the old attach-and-note behaviour there too.
+A service started this way stops itself 5 minutes after the last MCP client
+disconnects (last one out); services you start by hand only stop via
+`workjournal stop`, and Docker is unaffected. Source runs (`pnpm mcp`) autostart
+only when `MCP_AUTOSTART_ENTRY` points at the built CLI entry.
+
 ## Repository layout
 
 ```

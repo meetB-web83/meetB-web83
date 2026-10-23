@@ -49,7 +49,7 @@ You (the coding agent) build this project end to end. meetb is the only human. C
 
 Two MCP servers are available. Use them continuously, at short intervals, not only at the end. Use their tool lists to find the right tools.
 
-**Agent-state memory MCP** — this project's working state:
+**Agent-state MCP** — this project's working state:
 - At session start: read current state first (ongoing work, errors, pending items, context file paths). Resume from it instead of re-deriving.
 - Write state at each of these moments: you start or claim a task; you make a decision; you finish a test run (pass or fail); you hit an error, blocker, or rate/usage limit; roughly every 10 file edits or 20 minutes of work, whichever comes first; and immediately before you stop or when you think the session may end.
 - Shape each entry like a WorkJournal checkpoint so the habit transfers: progress summary, completed work, current findings, unresolved issues, next steps, relevant file paths. Write enough that a different agent could continue without this conversation.
