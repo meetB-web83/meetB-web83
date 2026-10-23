@@ -31,6 +31,13 @@ export {
   type IdempotencyTable,
 } from './domain/idempotency-service.js';
 export { canTransition, allowedTransitions } from './domain/transitions.js';
+export {
+  loadAutoStopConfig,
+  startIdleSweeper,
+  type AutoStopConfig,
+  type IdleSweeper,
+  type IdleSweeperOptions,
+} from './runtime/idle-sweeper.js';
 export { ResumeBuilder } from './resume/resume-builder.js';
 export { JsonExporter } from './export/json-export.js';
 export { MarkdownExporter } from './export/markdown-export.js';
