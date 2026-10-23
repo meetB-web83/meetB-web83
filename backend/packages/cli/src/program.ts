@@ -37,6 +37,8 @@ export function createCliProgram(): Command {
     .command('mcp')
     .description('Run the MCP adapter (stdio by default; --http for Streamable HTTP)')
     .option('--http', 'Run the Streamable HTTP transport instead of stdio')
+    .option('--with-ui', 'Autostart the core service with the dashboard when it is down (stdio)')
+    .option('--no-autostart', 'Never autostart the core service; fail with an actionable error instead')
     .action(mcpCommand);
 
   return program;

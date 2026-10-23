@@ -1,8 +1,9 @@
 import { readFileSync, unlinkSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { workjournalHome } from '../utils/home.js';
 
 export async function stopCommand() {
-  const pidFile = resolve(process.env.WORKJOURNAL_HOME || '~/.workjournal', 'service.pid');
+  const pidFile = resolve(workjournalHome(), 'service.pid');
 
   if (!existsSync(pidFile)) {
     console.log('No PID file found. Service may not be running.');

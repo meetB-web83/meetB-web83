@@ -6,13 +6,16 @@ import {
   runMigrations,
   buildServer,
   registryMigrationsSource,
+  loadAutoStopConfig,
+  startIdleSweeper,
 } from '@workjournal/core';
 import {
   embeddedUiAssets,
   loadUiAssetsFromDir,
   type UiAssets,
 } from '@workjournal/core';
-import { writePidFile } from '../utils/pid-file.js';
+import { removePidFile, writePidFile } from '../utils/pid-file.js';
+import { workjournalHome } from '../utils/home.js';
 
 export interface StartOptions {
   /** Serve the dashboard from embedded assets on the same origin as the API. */
@@ -42,7 +45,7 @@ function openBrowser(url: string): void {
 
 export async function startCommand(options: StartOptions = {}): Promise<void> {
   const config = loadConfig();
-  const homeDir = config.workjournalHome.replace(/^~/, process.env.HOME || process.env.USERPROFILE || '.');
+  const homeDir = workjournalHome();
 
   const dbPath = resolve(homeDir, 'registry.db');
   const db = createDatabase(dbPath);
@@ -65,15 +68,51 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
 
   const server = buildServer(db, config, { ui });
 
-  writePidFile(homeDir);
+  try {
+    await server.listen({ host: config.host, port: config.port });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === 'EADDRINUSE') {
+      // Two adapters can race to autostart; the loser must not clobber the
+      // winner's PID file (writePidFile runs only after a successful listen).
+      console.error(
+        `Port ${config.port} is already in use — another WorkJournal core is probably ` +
+          'running. Check "workjournal status", or stop it with "workjournal stop".',
+      );
+      process.exit(1);
+    }
+    throw err;
+  }
 
-  await server.listen({ host: config.host, port: config.port });
+  writePidFile(homeDir);
   const url = `http://${config.host === '0.0.0.0' ? '127.0.0.1' : config.host}:${config.port}`;
   console.log(`WorkJournal core service running at ${url}`);
   if (ui) {
     console.log(`Dashboard: ${url}/`);
     if (options.open) openBrowser(`${url}/`);
   }
+
+  // Last-one-out auto-stop, active ONLY when the MCP adapter spawned us
+  // (WORKJOURNAL_AUTOSTART=1, decision D-013). Manual starts and Docker
+  // never set the flag, so their lifecycle is unchanged.
+  const autoStop = loadAutoStopConfig();
+  startIdleSweeper({
+    homeDir,
+    config: autoStop,
+    onIdle: async () => {
+      console.log(
+        `WorkJournal: no MCP clients for ${Math.round(autoStop.idleMs / 1000)}s — ` +
+          'auto-stopping (this service was started by the MCP adapter; ' +
+          'run "workjournal start --with-ui" for a permanent one).',
+      );
+      try {
+        await server.close();
+      } catch {
+        // Best effort — we are exiting either way.
+      }
+      removePidFile(homeDir);
+      process.exit(0);
+    },
+  });
 
   process.on('SIGINT', async () => { await server.close(); process.exit(0); });
   process.on('SIGTERM', async () => { await server.close(); process.exit(0); });
