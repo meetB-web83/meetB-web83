@@ -29,9 +29,30 @@ export function ProjectDetailPage() {
   const pageTasks = tasks.slice(0, PAGE_SIZE);
   const hasNext = tasks.length > PAGE_SIZE;
 
+  // Fetch project-level events (task-less events) for the history section
+  const [projectEvents, setProjectEvents] = useState<any[]>([]);
+  const [projectEventsLoading, setProjectEventsLoading] = useState(false);
+
   useEffect(() => {
     setPage(0);
   }, [projectId, statusFilter, priorityFilter]);
+
+  useEffect(() => {
+    async function loadProjectEvents() {
+      setProjectEventsLoading(true);
+      try {
+        const result = await api.get<any[]>(`/events?project_id=${projectId}&task_id=null&limit=100`);
+        setProjectEvents(result);
+      } catch (err) {
+        console.error('Failed to load project events:', err);
+      } finally {
+        setProjectEventsLoading(false);
+      }
+    }
+    loadProjectEvents();
+  }, [projectId]);
+
+  const PAGE_SIZE = 25;
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState('');
   const [objective, setObjective] = useState('');
@@ -123,6 +144,40 @@ export function ProjectDetailPage() {
         />
 
         <TaskList tasks={pageTasks} loading={tasksLoading} error={error} />
+
+        {/* Project-Level History Section */}
+        {projectEvents.length > 0 && (
+          <div className="mt-lg">
+            <h2 className="section-subtitle">Project History</h2>
+            <div className="timeline">
+              {projectEvents
+                .slice()
+                .reverse()
+                .map((ev) => (
+                  <div
+                    key={ev.id}
+                    className="timeline-event"
+                    style={{
+                      borderLeftColor: ev.source === 'core' ? 'var(--primary)' : 'var(--secondary)',
+                    }}
+                  >
+                    <span className="timeline-event-type">{ev.event_type}</span>
+                    <span className="timeline-event-actor">{ev.actor}</span>
+                    <span className="timeline-event-time">{formatDateTime(ev.created_at)}</span>
+                    {ev.category && (
+                      <span className="timeline-event-category chip">{ev.category}</span>
+                    )}
+                    {ev.source && (
+                      <span className="timeline-event-source badge">
+                        {ev.source === 'core' ? 'Core' : ev.source}
+                      </span>
+                    )}
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
+
         <Pagination
           page={page}
           hasNext={hasNext}

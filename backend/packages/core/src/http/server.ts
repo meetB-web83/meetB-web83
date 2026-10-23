@@ -6,6 +6,7 @@ import { buildServices, type CoreServices } from './services.js';
 import { registerProjectRoutes } from './routes/projects.js';
 import { registerTaskRoutes } from './routes/tasks.js';
 import { registerEventRoutes } from './routes/events.js';
+import { registerIngestRoutes } from './routes/ingest.js';
 import { registerCheckpointRoutes } from './routes/checkpoints.js';
 import { registerDecisionRoutes } from './routes/decisions.js';
 import { registerResumeRoutes } from './routes/resume.js';
@@ -72,6 +73,7 @@ export function buildServer(db: Database, config: Config, options: BuildServerOp
   server.register(registerProjectRoutes, { prefix: '/api/projects' });
   server.register(registerTaskRoutes, { prefix: '/api/tasks' });
   server.register(registerEventRoutes, { prefix: '/api/events' });
+  server.register(registerIngestRoutes, { prefix: '/api/ingest' });
   server.register(registerCheckpointRoutes, { prefix: '/api/checkpoints' });
   server.register(registerDecisionRoutes, { prefix: '/api/decisions' });
   server.register(registerResumeRoutes, { prefix: '/api/resume' });

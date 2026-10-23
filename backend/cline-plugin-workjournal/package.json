@@ -1,0 +1,42 @@
+{
+  "name": "@workjournal/cline-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cline plugin for workJournal - WS-3 enhanced event recording",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run"
+  },
+  "cline": {
+    "plugins": [
+      {
+        "paths": ["./src/index.ts"],
+        "capabilities": ["hooks"]
+      }
+    ]
+  },
+  "keywords": ["workjournal", "cline", "plugin", "ws-3", "event-recording"],
+  "author": "Cline Plugin Integration",
+  "license": "MIT",
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.2",
+    "vitest": "^1.6.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.5.2"
+  },
+  "peerDependencies": {
+    "@cline/sdk": "*"
+  },
+  "peerDependenciesMeta": {
+    "@cline/sdk": {
+      "optional": true
+    }
+  }
+}

@@ -109,13 +109,34 @@ export function TaskDetailPage() {
               <div className="empty-box">No events recorded yet.</div>
             ) : (
               <div className="timeline">
-                {events.slice().reverse().map((ev) => (
-                  <div key={ev.id} className="timeline-event">
-                    <span className="timeline-event-type">{ev.event_type}</span>
-                    <span className="timeline-event-actor">{ev.actor}</span>
-                    <span className="timeline-event-time">{formatDateTime(ev.created_at)}</span>
-                  </div>
-                ))}
+                {events
+                  .slice()
+                  .reverse()
+                  .map((ev) => (
+                    <div
+                      key={ev.id}
+                      className="timeline-event"
+                      style={{
+                        borderLeftColor: ev.source === 'core' ? 'var(--primary)' : 'var(--secondary)',
+                      }}
+                    >
+                      <span className="timeline-event-type">{ev.event_type}</span>
+                      <span className="timeline-event-actor">{ev.actor}</span>
+                      <span className="timeline-event-time">{formatDateTime(ev.created_at)}</span>
+                      {ev.category && (
+                        <span className="timeline-event-category chip">{ev.category}</span>
+                      )}
+                      {ev.source && (
+                        <span className="timeline-event-source badge">
+                          {ev.source === 'core' ? 'Core' : ev.source}
+                        </span>
+                      )}
+                      <details>
+                        <summary>View payload</summary>
+                        <pre>{JSON.stringify(ev.payload, null, 2)}</pre>
+                      </details>
+                    </div>
+                  ))}
               </div>
             )}
           </div>
