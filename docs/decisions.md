@@ -387,3 +387,77 @@ pid-unknown-while-running, stale-while-down, alive-but-unreachable) plus the
 attach-log assertions in `mcp-autostart.test.ts` §3 (pid on attach,
 `(pid: unknown)` fallback) — suite green at 119 tests, typecheck and lint
 clean.
+
+## D-016 — Preserve the Core/adapter split; MCP stays in the adapter (2026-10-23)
+
+**Decision.** The MCP adapter registers tools, resources and prompts; resource and prompt handlers call Core REST APIs. There is no MCP-in-core move. A single-process layout is documented as an alternative in plan §9.4 but is not a prerequisite.
+
+**Bridge.** Core emits post-commit change notifications over an internal event bus and a new, minimal long-poll/SSE endpoint (`GET /api/changes/stream`). The adapter subscribes and translates Core change records into MCP `notifications/resources/updated`, `notifications/prompts/list_changed`, and `notifications/resources/list_changed` for each connected MCP session. Browser dashboard refresh is a separate mechanism and is not coupled to MCP.
+
+**Reason.** Preserves the "adapter never touches SQLite" isolation and keeps the existing two-process Core/adapter architecture intact while adding change notifications (WS-8).
+
+**Consequences.** Notifications flow Core → adapter → MCP sessions; the dashboard uses its own polling/SSE path; the single-process alternative remains deferred unless the bridge proves unreliable in practice.
+
+**Status.** Approved via post-MVP plan (docs/WorkJournal_post_MVP.md §2, 2026-10-23).
+
+## D-017 — Canonical event envelope with source + category (2026-10-23)
+
+**Decision.** Introduce a stable envelope: `event_id`, `occurred_at` (UTC), `source` (`core` | `mcp_tool` | `agent:<agent-id>`), `category`, `type`, `project_id`, `task_id` (nullable), `actor`, `payload` (validated per type), `sequence`. Agent-reported events are recorded as ledger events — they never perform an authoritative task transition. Low-level tool-call logging is opt-in.
+
+**Reason.** Unifies the task and agent ledgers with nullable `task_id` for project-level agent events; `source`/`category` give authority badges for the unified timeline; keeping task transitions inside the single transition function protects the D-001..D-004 invariants (WS-2, WS-5).
+
+**Status.** Approved via post-MVP plan (§2, 2026-10-23).
+
+## D-018 — Checkpoint provenance via relational join table (2026-10-23)
+
+**Decision.** Checkpoint provenance uses a `checkpoint_sources` join table (`checkpoint_id`, `event_id`, `role`) rather than a JSON array of source event ids: referential integrity against append-only events, indexed support for "which checkpoints cite this event", and consistency with existing relational conventions. Trade-off analysis is in plan §5.2; `decisions.supporting_event_ids` is left unchanged (no retro-fit).
+
+**Reason.** FK integrity and reverse lookups outweigh the simpler write cost of a JSON column; matches the project-DB relational style.
+
+**Status.** Approved via post-MVP plan (§2, §5.2, 2026-10-23).
+
+## D-019 — Deterministic checkpoint policy; compaction deferred out of v2 (2026-10-23)
+
+**Decision.** Checkpoint *policy* decides whether a checkpoint is warranted — a pure function over task state, latest checkpoint, and events since. Checkpoint *content* is assembled deterministically from bounded event slices; no model runs in Core. The optional compaction provider layer (Ollama/remote, plan §6.3) is explicitly deferred: the agent produces the fulfilment/progress narrative through ledger events and Core only structures and validates it. The `Compactor` interface remains specified so a provider can be added later, but no provider, configuration, or test surface lands in v2.
+
+**Reason.** Determinism and inspectability are hard requirements; meetb's decision is that v2 relies on the agent itself, with no model in Core (WS-5).
+
+**Status.** Approved via post-MVP plan (§2, §6.3, 2026-10-23).
+
+## D-020 — Prompts are data in the registry DB, dual-scope with shadowing (2026-10-23)
+
+**Decision.** Prompts are validated templates (message definitions), never executable code, stored as rows in the registry DB with a nullable `project_id` (NULL = global scope). Built-ins are seeded global rows, editable as overrides. A project-scoped prompt with the same name shadows any global prompt or built-in for that project only — global rows are never modified by shadowing and other projects are unaffected. The MCP adapter resolves project scope by matching its working directory against registered project roots (no match → global prompts only) and re-reads the registry on change to re-register dynamically.
+
+**Reason.** Dual-scope storage lets one API/dashboard/MCP sync serve both scopes while keeping project DBs pure per-project state (prompts are not stored in project DBs).
+
+**Status.** Approved via post-MVP plan (§2, §8.1, 2026-10-23).
+
+## D-021 — Extensible agent-integration registry behind `workjournal setup` (2026-10-23)
+
+**Decision.** Setup logic lives behind an `AgentIntegration` interface (discovery, plan, apply, validate, uninstall, capabilities); the CLI iterates a frozen registry array. The only adapter in this release is OpenCode; adding another agent (e.g. Cline) is a new adapter file plus one registry entry — no changes to the setup command flow. Interactive selection is a zero-dependency `node:readline` numbered multiselect. Config scope is global by default (`~/.config/opencode/opencode.json(c)`) with an explicit `--project` flag for cwd-local config. OpenCode config files are JSONC; merges use Microsoft `jsonc-parser` minimal-edit operations so comments, formatting, and unrelated keys survive; the parser's duplicate-key limitation is documented and reported.
+
+**Reason.** Keeps the setup command closed to modification but open to extension, keeps the CLI dependency-free and SEA-safe, and preserves user config across setup runs.
+
+**Status.** Approved via post-MVP plan (§2, §10.2–10.3, 2026-10-23).
+
+## D-022 — OpenCode lifecycle plugin: embed + extract, reports to a Core ingestion API (2026-10-23)
+
+**Decision.** The lifecycle plugin is a small self-contained JS module authored in the repo, embedded into the SEA executable at build time (same generated-embed pattern as migrations and dashboard UI) and written to `~/.workjournal/integrations/opencode/plugin/` by `workjournal setup`. It default-exports `{ id, setup(ctx) }`; OpenCode V2 reads `id`/`setup` off the export, so no `@opencode/plugin` runtime dependency is needed in the extracted location (embedded `Plugin.define` shim as fallback). It observes only reliably observable signals (session lifecycle, interruption, idle, errors) via `ctx.event.subscribe()` and optional tool hooks, and POSTs canonical envelopes to Core `POST /api/ingest/events`. Delivery uses a bounded queue in `ctx.storage` with backoff when Core is down; the plugin never autostarts Core. Low-level tool-call logging is opt-in via plugin options, default off; idle/errors/interruption are signals, never proof of task completion.
+
+**Reason.** Embed+extract keeps the plugin self-contained with no runtime dependency; ledger-only ingestion plus the transition-function boundary guarantees plugin events cannot mutate task status (WS-9).
+
+**Status.** Approved via post-MVP plan (§2, §10.5, 2026-10-23).
+
+## D-023 — Ingestion API accepts ledger envelopes only; task transitions stay with the transition function (2026-10-23)
+
+**Decision.** `POST /api/ingest/events` accepts a bounded batch (≤ 50) of canonical envelopes restricted to ledger categories (`agent`, `progress`, `verification`, `recovery` signals). Task-lifecycle or transition-shaped payloads are rejected with `400`. Idempotency is by client-generated `event_id` (retry-safe dedup; per-event `accepted` | `duplicate` | `rejected` responses). The single transition function remains the only path that changes task status.
+
+**Reason.** Agent observability events enter the ledger without any path for them to corrupt task state, preserving the D-001..D-004 invariants (WS-9 plugin→Core integration).
+
+**Status.** Approved via post-MVP plan (§2, §10.5, 2026-10-23).
+
+---
+
+### Citation note (housekeeping — plan-doc cleanup)
+
+The post-MVP plan (§1 "Existing Architecture & Behavior") cites "decision D-011" for SEA-embedded migrations/committed embed files. In `docs/decisions.md` that content is recorded as **D-012** (SEA single executable, 2026-10-19); **D-011** is the `PROJECTS_DIRECTORY`/Docker path-mapping decision. The discrepancy was carried into WS-1.2's task context but, per WS-1.2 constraints, the plan document itself was not edited; this note records it for a future plan-doc cleanup pass. All other plan decision citations (D-013..D-015 autostart/PID, D-020..D-023) match `docs/decisions.md`.
