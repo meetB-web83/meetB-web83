@@ -30,6 +30,13 @@ export const claimTaskSchema = z.object({
   agent_id: agentIdSchema,
   expected_version: z.number().int().positive(),
   idempotency_key: idempotencyKeySchema,
+  /**
+   * Agent session id forwarded from the MCP tool-call `_meta` (WS-2.5): a
+   * successful claim binds session → task so later plugin ingestion events
+   * for this session are backfilled with task_id. Optional; claims from
+   * clients that send no session create no binding.
+   */
+  session_id: z.string().min(1).max(200).optional(),
 });
 
 export const releaseTaskSchema = z.object({

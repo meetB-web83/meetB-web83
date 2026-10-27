@@ -3,21 +3,22 @@ export async function callCore<T = any>(
   method: string,
   path: string,
   body?: unknown,
+  options?: { headers?: Record<string, string> },
 ): Promise<T> {
   const url = `${baseUrl}${path}`;
 
-  const options: RequestInit = {
+  const requestOptions: RequestInit = {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
   };
 
   if (body !== undefined && method !== 'GET') {
-    options.body = JSON.stringify(body);
+    requestOptions.body = JSON.stringify(body);
   }
 
   let response: Response;
   try {
-    response = await fetch(url, options);
+    response = await fetch(url, requestOptions);
   } catch (err: any) {
     // Root AGENTS.md: if the service is down, tell the agent how to start it; no auto-start.
     throw new Error(

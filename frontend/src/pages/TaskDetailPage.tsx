@@ -111,6 +111,8 @@ export function TaskDetailPage() {
               <div className="timeline">
                 {events.slice().reverse().map((ev) => (
                   <div key={ev.id} className="timeline-event">
+                    <span className={`timeline-event-badge category-${ev.category}`}>{ev.category}</span>
+                    <span className={`timeline-event-badge source-${ev.source.split(':')[0]}`}>{ev.source}</span>
                     <span className="timeline-event-type">{ev.event_type}</span>
                     <span className="timeline-event-actor">{ev.actor}</span>
                     <span className="timeline-event-time">{formatDateTime(ev.created_at)}</span>

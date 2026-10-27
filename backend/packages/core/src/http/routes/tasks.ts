@@ -98,6 +98,7 @@ export async function registerTaskRoutes(server: FastifyInstance) {
       input.agent_id,
       input.expected_version,
       { key: input.idempotency_key, input: operationInput(input) },
+      input.session_id ?? null,
     );
   });
 

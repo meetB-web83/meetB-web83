@@ -1,6 +1,7 @@
 ﻿import { v4 as uuid } from 'uuid';
 import type { Database } from '../db/connection.js';
 import { EventService } from './event-service.js';
+import { SessionBindingService } from './session-binding-service.js';
 import { IdempotencyService, type IdempotencyOptions } from './idempotency-service.js';
 import { canTransition } from './transitions.js';
 import { toTaskRow } from './serialize.js';
@@ -44,10 +45,12 @@ export interface TaskUpdateData {
  */
 export class TaskService {
   private events: EventService;
+  private bindings: SessionBindingService;
   private idem: IdempotencyService;
 
   constructor(private db: Database) {
     this.events = new EventService(db);
+    this.bindings = new SessionBindingService(db);
     this.idem = new IdempotencyService(db);
   }
 
@@ -161,9 +164,18 @@ export class TaskService {
    * Claiming runs through the transition function, so it is permitted exactly where
    * `in_progress` is a legal next status: from `open` (owner must be free) and from
    * `interrupted` (the previous attempt ended, so the claim is reassigned to the
-   * recovering agent â€” scope Â§18 continuity, Agent A â†’ Agent B).
+   * recovering agent — scope §18 continuity, Agent A → Agent B).
+   *
+   * `sessionId` (WS-2.5, from the MCP tool-call `_meta`) binds session → task
+   * so later plugin ingestion events for this session carry task_id.
    */
-  async claimTask(taskId: string, agentId: string, expectedVersion: number, idempotency?: MutationIdempotency) {
+  async claimTask(
+    taskId: string,
+    agentId: string,
+    expectedVersion: number,
+    idempotency?: MutationIdempotency,
+    sessionId?: string | null,
+  ) {
     return this.idem.run(
       'idempotency_records',
       idempotency && { ...idempotency, operation: 'task.claim', actor: agentId },
@@ -198,6 +210,10 @@ export class TaskService {
           eventType: 'task_claimed',
           payload: { owner: agentId },
         });
+
+        if (sessionId) {
+          this.bindings.bind(sessionId, task.project_id, taskId, agentId);
+        }
 
         return this.getTask(taskId);
       },
@@ -237,6 +253,9 @@ export class TaskService {
           eventType: 'task_released',
           payload: { previous_owner: agentId },
         });
+
+        // WS-2.5: a released task no longer correlates its sessions.
+        this.bindings.releaseForTask(taskId);
 
         return this.getTask(taskId);
       },

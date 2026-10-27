@@ -37,6 +37,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
 
@@ -50,6 +51,17 @@ const configPath = join(distBin, 'sea-config.json');
 const blobPath = join(distBin, 'workjournal.blob');
 const exeName = process.platform === 'win32' ? 'workjournal.exe' : 'workjournal';
 const exePath = join(distBin, exeName);
+
+/**
+ * `jsonc-parser`'s `main` is a UMD file that calls `require("./impl/format")`
+ * through a variable, so esbuild cannot inline it; inside the SEA blob that
+ * dynamic require is looked up as a builtin and the exe dies at startup with
+ * ERR_UNKNOWN_BUILTIN_MODULE. Point the bundler at the package's ESM entry
+ * instead, which uses static imports.
+ */
+const jsoncEsmEntry = createRequire(join(backendRoot, 'packages', 'cli', 'package.json')).resolve(
+  'jsonc-parser/lib/esm/main.js',
+);
 
 /** Node SEA sentinel fuse — must match what postject embeds and Node checks. */
 const SENTINEL_FUSE = 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2';
@@ -113,6 +125,7 @@ async function main(): Promise<void> {
     format: 'cjs',
     target: 'node22',
     define: { 'import.meta.dirname': 'undefined' },
+    alias: { 'jsonc-parser': jsoncEsmEntry },
     logLevel: 'info',
   });
   if (result.errors.length > 0) {

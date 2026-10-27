@@ -11,6 +11,7 @@ import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
 import { api } from '../lib/api';
 import { Spinner } from '../components/ui/Spinner';
+import { formatDateTime } from '../lib/format';
 import { toast } from 'react-toastify';
 
 const PAGE_SIZE = 25;
@@ -21,6 +22,9 @@ export function ProjectDetailPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
   const [page, setPage] = useState(0);
+  const [view, setView] = useState<'cards' | 'list'>('cards');
+  const [projectEvents, setProjectEvents] = useState<any[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
   const { tasks, loading: tasksLoading, error } = useTasks(
     projectId!,
     { status: statusFilter, priority: priorityFilter },
@@ -32,6 +36,24 @@ export function ProjectDetailPage() {
   useEffect(() => {
     setPage(0);
   }, [projectId, statusFilter, priorityFilter]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadProjectEvents() {
+      if (!projectId) return;
+      setEventsLoading(true);
+      try {
+        const ev = await api.get<any[]>(`/events?project_id=${projectId}`);
+        if (!cancelled) setProjectEvents(ev);
+      } catch (err) {
+        console.error('Failed to load project events:', err);
+      } finally {
+        if (!cancelled) setEventsLoading(false);
+      }
+    }
+    loadProjectEvents();
+    return () => { cancelled = true; };
+  }, [projectId]);
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState('');
   const [objective, setObjective] = useState('');
@@ -115,20 +137,54 @@ export function ProjectDetailPage() {
           </div>
         )}
 
-        <TaskFilters
-          status={statusFilter}
-          priority={priorityFilter}
-          onStatusChange={setStatusFilter}
-          onPriorityChange={setPriorityFilter}
-        />
+        <div className="task-toolbar">
+          <div className="task-toolbar-left">
+            <TaskFilters
+              status={statusFilter}
+              priority={priorityFilter}
+              onStatusChange={setStatusFilter}
+              onPriorityChange={setPriorityFilter}
+            />
+            <div className="view-toggle">
+              <Button variant={view === 'cards' ? 'primary' : 'ghost'} size="sm" onClick={() => setView('cards')}>
+                Cards
+              </Button>
+              <Button variant={view === 'list' ? 'primary' : 'ghost'} size="sm" onClick={() => setView('list')}>
+                List
+              </Button>
+            </div>
+          </div>
+          <Pagination
+            page={page}
+            hasNext={hasNext}
+            onPrev={() => setPage((p) => Math.max(0, p - 1))}
+            onNext={() => setPage((p) => p + 1)}
+          />
+        </div>
 
-        <TaskList tasks={pageTasks} loading={tasksLoading} error={error} />
-        <Pagination
-          page={page}
-          hasNext={hasNext}
-          onPrev={() => setPage((p) => Math.max(0, p - 1))}
-          onNext={() => setPage((p) => p + 1)}
-        />
+        <TaskList tasks={pageTasks} loading={tasksLoading} error={error} view={view} />
+
+        {/* Project-level history (task-less events) */}
+        <div className="mt-lg">
+          <h2 className="section-subtitle">Project Activity</h2>
+          {eventsLoading ? (
+            <Spinner />
+          ) : projectEvents.length === 0 ? (
+            <div className="empty-box">No project-level activity yet.</div>
+          ) : (
+            <div className="timeline">
+              {projectEvents.slice().reverse().map((ev) => (
+                <div key={ev.id} className="timeline-event">
+                  <span className={`timeline-event-badge category-${ev.category}`}>{ev.category}</span>
+                  <span className={`timeline-event-badge source-${ev.source.split(':')[0]}`}>{ev.source}</span>
+                  <span className="timeline-event-type">{ev.event_type}</span>
+                  <span className="timeline-event-actor">{ev.actor}</span>
+                  <span className="timeline-event-time">{formatDateTime(ev.created_at)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

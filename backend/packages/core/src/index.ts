@@ -24,7 +24,9 @@ export { DashboardService } from './domain/dashboard-service.js';
 export { ProjectService } from './domain/project-service.js';
 export { CheckpointService } from './domain/checkpoint-service.js';
 export { DecisionService } from './domain/decision-service.js';
-export { EventService, type RecordEventInput } from './domain/event-service.js';
+export { EventService, type RecordEventInput, type AppendEventInput, type AppendedEvent } from './domain/event-service.js';
+export { IngestService } from './domain/ingest-service.js';
+export { SessionBindingService } from './domain/session-binding-service.js';
 export {
   IdempotencyService,
   type IdempotencyOptions,

@@ -23,7 +23,7 @@ export class ResumeBuilder {
 
     const checkpoint = await this.checkpoints.getLatestCheckpoint(taskId);
     const activeDecisions = await this.decisions.listDecisions(taskId, false);
-    const allEvents = await this.events.listEvents(taskId);
+    const allEvents = await this.events.listEvents({ taskId });
 
     const sections: string[] = [];
 

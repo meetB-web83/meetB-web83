@@ -17,9 +17,19 @@ import {
   supersedeDecisionSchema,
   listEventsQuerySchema,
   dashboardQuerySchema,
+  startAgentSessionSchema,
+  endAgentSessionSchema,
+  reportInterruptionSchema,
+  reportTimeoutSchema,
+  reportProgressMilestoneSchema,
+  reportFulfilmentSchema,
+  reportVerificationSchema,
+  projectIdFromAgentId,
+  type IngestEnvelopeInput,
 } from '@workjournal/shared';
 import { callCore } from '../client.js';
 import { buildQueryString } from './query.js';
+import { extractSessionId } from './session-meta.js';
 
 type Json = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
 
@@ -42,17 +52,49 @@ export function registerTools(server: McpServer, coreUrl: string) {
     name: string,
     description: string,
     inputSchema: ZodRawShape,
-    handler: (args: any) => Promise<unknown>,
+    handler: (args: any, extra?: any) => Promise<unknown>,
   ) =>
-    server.registerTool(name, { title: name, description, inputSchema }, async (args: any) => {
+    server.registerTool(name, { title: name, description, inputSchema }, async (args: any, extra: any) => {
       try {
-        return asJson(await handler(args));
+        return asJson(await handler(args, extra));
       } catch (err) {
         return { ...asJson(errorMessage(err)), isError: true };
       }
     });
 
   const query = (params: Record<string, unknown>) => buildQueryString(params);
+
+  /**
+   * Agent-reporting tools (plan §3.5, WS-2.6) post ONE canonical ledger
+   * envelope to the ingestion API (D-023): event_id = idempotency_key,
+   * source = `agent:<agent_id>`, category derived by Core. Project scope comes
+   * from the explicit project_id or the agent-id suffix (project ids never
+   * contain `_`).
+   */
+  const reportEvent = (type: string | ((args: any) => string), payloadFields: (args: any) => Record<string, unknown>) =>
+    (args: any) => {
+      const project_id = args.project_id ?? projectIdFromAgentId(args.agent_id);
+      if (!project_id) {
+        throw new Error(
+          `Could not determine project_id from agent_id "${args.agent_id}" — pass project_id explicitly.`,
+        );
+      }
+      const envelope: IngestEnvelopeInput = {
+        event_id: args.idempotency_key,
+        type: typeof type === 'function' ? type(args) : type,
+        source: `agent:${args.agent_id}`,
+        actor: args.agent_id,
+        ...(args.task_id ? { task_id: args.task_id } : {}),
+        payload: payloadFields(args),
+      };
+      return callCore(
+        coreUrl,
+        'POST',
+        `/api/ingest/events${query({ project_id })}`,
+        { events: [envelope] },
+      );
+    };
+
 
   // ---- Task CRUD -----------------------------------------------------------
 
@@ -88,9 +130,17 @@ export function registerTools(server: McpServer, coreUrl: string) {
 
   tool(
     'claim_task',
-    'Claim an open task (or recover an interrupted one, which reassigns ownership to you). Bumps the task version.',
+    'Claim an open task (or recover an interrupted one, which reassigns ownership to you). Bumps the task version. When your client attaches a session id in the tool-call _meta, the claim also binds session to task for event correlation.',
     claimTaskSchema.shape,
-    (args) => callCore(coreUrl, 'POST', `/api/tasks/${args.task_id}/claim`, args),
+    (args, extra) => {
+      // WS-2.5: forward the agent session id (OpenCode `_meta`) so Core can
+      // bind session → task; later plugin events then carry task_id.
+      const sessionId = args.session_id ?? extractSessionId(extra?._meta);
+      return callCore(coreUrl, 'POST', `/api/tasks/${args.task_id}/claim`, {
+        ...args,
+        ...(sessionId ? { session_id: sessionId } : {}),
+      });
+    },
   );
 
   tool(
@@ -196,5 +246,89 @@ export function registerTools(server: McpServer, coreUrl: string) {
     'Dashboard overview: task stats, recent tasks and the project scope list. Pass project_id to scope to one project; omit it for all projects.',
     dashboardQuerySchema.shape,
     (args) => callCore(coreUrl, 'GET', `/api/dashboard${query(args)}`),
+  );
+
+  // ---- Agent reporting (plan §3.5, WS-2.6) --------------------------------
+  // Ledger-only reports: they record what happened, never a task transition.
+
+  tool(
+    'start_agent_session',
+    'Record the start of an agent session (ledger event, no task transition). Requires your agent_id and session_id plus a fresh idempotency_key.',
+    startAgentSessionSchema.shape,
+    reportEvent('agent_session_started', (a) => ({ agent_id: a.agent_id, session_id: a.session_id })),
+  );
+
+  tool(
+    'end_agent_session',
+    'Record the end of an agent session with a completion reason (ledger event, no task transition).',
+    endAgentSessionSchema.shape,
+    reportEvent('agent_session_ended', (a) => ({
+      agent_id: a.agent_id,
+      session_id: a.session_id,
+      reason: a.reason,
+    })),
+  );
+
+  tool(
+    'report_interruption',
+    'Record that the agent session was interrupted (ledger event; task status is not changed).',
+    reportInterruptionSchema.shape,
+    reportEvent('agent_interrupted', (a) => ({
+      agent_id: a.agent_id,
+      session_id: a.session_id,
+      ...(a.reason ? { reason: a.reason } : {}),
+    })),
+  );
+
+  tool(
+    'report_timeout',
+    'Record that the agent session timed out (ledger event; task status is not changed).',
+    reportTimeoutSchema.shape,
+    reportEvent('agent_timed_out', (a) => ({
+      agent_id: a.agent_id,
+      session_id: a.session_id,
+      ...(a.timeout_ms !== undefined ? { timeout_ms: a.timeout_ms } : {}),
+    })),
+  );
+
+  tool(
+    'report_progress_milestone',
+    'Record a progress milestone on a task or project (ledger event, no task transition).',
+    reportProgressMilestoneSchema.shape,
+    reportEvent('progress_milestone', (a) => ({
+      agent_id: a.agent_id,
+      ...(a.session_id ? { session_id: a.session_id } : {}),
+      summary: a.summary,
+    })),
+  );
+
+  tool(
+    'report_fulfilment',
+    'Record fulfilment evidence (summary, findings, blockers, next steps, files changed). Ledger event; triggers checkpoint evaluation, never a task transition.',
+    reportFulfilmentSchema.shape,
+    reportEvent('progress_fulfilment', (a) => ({
+      agent_id: a.agent_id,
+      ...(a.session_id ? { session_id: a.session_id } : {}),
+      summary: a.summary,
+      ...(a.findings ? { findings: a.findings } : {}),
+      ...(a.blockers ? { blockers: a.blockers } : {}),
+      ...(a.next_steps ? { next_steps: a.next_steps } : {}),
+      ...(a.files_changed ? { files_changed: a.files_changed } : {}),
+    })),
+  );
+
+  tool(
+    'report_verification',
+    'Record a verification outcome: passed, failed or skipped, with check_type and detail (ledger event, no task transition).',
+    reportVerificationSchema.shape,
+    reportEvent(
+      (a) => `verification_${a.outcome}`,
+      (a) => ({
+        agent_id: a.agent_id,
+        ...(a.session_id ? { session_id: a.session_id } : {}),
+        check_type: a.check_type,
+        ...(a.detail ? { detail: a.detail } : {}),
+      }),
+    ),
   );
 }

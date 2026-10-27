@@ -17,7 +17,7 @@ export class JsonExporter {
 
     const checkpoint = await checkpoints.getLatestCheckpoint(taskId);
     const allDecisions = await decisions.listDecisions(taskId, true);
-    const allEvents = await events.listEvents(taskId);
+    const allEvents = await events.listEvents({ taskId });
 
     const handoff = {
       format_version: 1,

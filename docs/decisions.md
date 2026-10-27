@@ -446,7 +446,7 @@ clean.
 
 **Reason.** Embed+extract keeps the plugin self-contained with no runtime dependency; ledger-only ingestion plus the transition-function boundary guarantees plugin events cannot mutate task status (WS-9).
 
-**Status.** Approved via post-MVP plan (§2, §10.5, 2026-10-23).
+**Status.** Approved via post-MVP plan (§2, §10.5, 2026-10-23). The "tool-call logging default off" clause is superseded by D-027 (2026-10-27) for Cline.
 
 ## D-023 — Ingestion API accepts ledger envelopes only; task transitions stay with the transition function (2026-10-23)
 
@@ -455,6 +455,55 @@ clean.
 **Reason.** Agent observability events enter the ledger without any path for them to corrupt task state, preserving the D-001..D-004 invariants (WS-9 plugin→Core integration).
 
 **Status.** Approved via post-MVP plan (§2, §10.5, 2026-10-23).
+
+## D-024 — Agent setup writes the agents' real config schemas, not the M14 placeholder shapes (2026-10-27)
+
+**Decision.** `workjournal setup` targets the schemas the installed agent builds actually read:
+
+- **OpenCode:** MCP servers live under `mcp.servers.<name>` (schema verified by running `opencode mcp add`; the CLI writes exactly that shape). `mcp.servers.workjournal = { type: "local", command: [...] }`. Local plugins are auto-loaded from `<config>/plugins/` (global) or `<project>/.opencode/plugins/`; setup writes `workjournal.js` there as well as a versioned copy + sha256 manifest under `~/.workjournal/integrations/opencode/plugin/`. Project scope targets the repository root (the nearest ancestor containing `.git`), because OpenCode loads `<repo-root>/opencode.json` even when started in a subdirectory (verified with `opencode debug config`). The flat `mcp.workjournal` shape and the `plugins` array were written by an earlier setup build: setup migrates/removes WorkJournal's own entries only (verified loaded via `opencode plugin list`).
+- **Cline:** MCP settings live at `~/.cline/data/settings/cline_mcp_settings.json` (override `CLINE_MCP_SETTINGS_PATH`) under `mcpServers.workjournal = { command, args, disabled, autoApprove }`. The lifecycle extension is an ESM package under `~/.cline/plugins/workjournal/` (global) or `<project>/.cline/plugins/workjournal/` with a `package.json` declaring `type: "module"` and `cline.plugins[].paths = ["index.js"]`. Cline has no project-level MCP settings file, so `--project` installs only the plugin locally while the MCP entry stays global.
+
+Both adapters share one policy: an existing WorkJournal entry is migrated in place (preserving unrelated keys/comments), an entry pointing at a different command is refused without `--force`, writes are backup + atomic and rolled back if post-write validation fails, and identical content is a no-op. The lifecycle plugin is installed **only by `--global`**: both plugins scope events by the session workspace, so a global copy covers every project and a second project copy would report the same session twice. `--project` therefore edits config only and warns when no global plugin exists. The setup command exits non-zero on `not_installed`, `configuration_error`, refused plans, write failures, and validation failures, and only prints success after validation passes. Generated plugins emit ledger-only event types with sources `agent:opencode` / `agent:cline`, resolve the project via `GET /api/projects?available=true` (longest root-path ancestor of the workspace), and POST to `/api/ingest/events?project_id=`.
+
+**Reason.** The M14 draft was written before the agent config formats were verified. Reporting success while writing config the agent ignores is worse than failing: the integration silently never runs. Pinning the real schemas and enforcing post-write validation makes setup's exit status trustworthy.
+
+**Status.** Implemented 2026-10-27; supersedes the M14 §4 wording that implied a `plugins` array and the assumed `~/.config/cline/config.json` path. The flat `mcp.workjournal` shape (first implementation of this decision) is treated as legacy and migrated to `mcp.servers.workjournal`.
+
+## D-025 — SEA bundle takes `jsonc-parser` from its ESM entry; codegen writes are lock-resistant (2026-10-27)
+
+**Decision.** `scripts/build-exe.ts` aliases `jsonc-parser` to the package's `lib/esm/main.js` when esbuild bundles the CLI. The package's `main` is a UMD file that calls `require("./impl/format")` through a variable, so esbuild cannot inline it; in the SEA blob that dynamic require is resolved as a Node builtin and the executable aborts at startup with `ERR_UNKNOWN_BUILTIN_MODULE` — before any command, including `setup`, can run. The ESM entry uses static imports and bundles normally.
+
+Separately, `packages/core/scripts/write-generated.ts` now backs both embed scripts: it skips the write when the generated content is byte-identical and otherwise stages a temp file and renames it, retrying briefly. A direct `writeFileSync` of `embedded-ui.generated.ts` intermittently failed on Windows with `UNKNOWN: unknown error, open (...)` (errno -4094) when antivirus, OneDrive, an editor, or a concurrent `tsx watch` briefly held the destination, which aborted `pnpm build` mid-cascade after a frontend rebuild.
+
+**Reason.** The first is a hard runtime failure that only appears in the packaged executable (dev runs are unaffected), so it must be caught by `pnpm smoke:exe`; the second is a transient environment lock that made the release build flaky. Both are build-pipeline concerns, not application behavior.
+
+**Status.** Implemented 2026-10-27; `pnpm smoke:exe` passes on the rebuilt executable and the installed binary at `%LOCALAPPDATA%\Programs\workjournal` was replaced with it.
+
+## D-026 — Lifecycle plugins resolve projects by canonical path and surface delivery failures (2026-10-27)
+
+**Decision.** Both embedded lifecycle plugins canonicalize paths before matching a session workspace against Core's registered `root_path`s: git-bash `/c/Users/...` and WSL `/mnt/c/Users/...` become `c:/Users/...`, backslashes become forward slashes, trailing slashes are dropped, and Windows paths are case-folded in both operands. This mirrors Core's `normalizeRootPath`. In addition:
+
+- an unmatched workspace is reported once per session (host logger for Cline, `console.warn` for OpenCode) with the directory and the registered roots, instead of being dropped silently;
+- a failed delivery re-arms a retry timer (5 s) rather than waiting for the next event, and the queue is flushed once on teardown;
+- Cline's per-run `run-started`/`run-finished` are deduped by `conversationId` so sub-agents and resumed runs emit one `agent_session_started` and one `agent_session_ended`.
+
+**Reason.** Cline lifecycle events never reached Core: the project was registered through a POSIX-style path (`/c/Users/...`), the agent reported `C:\Users\...`, the matcher compared the raw strings, and every event was dropped with no visible error — only MCP-tool events (written by the adapter itself) appeared. Agent hooks and the plugin loader were verified separately (`@cline/shared` `AgentRuntimeHooks`, `resolveAndLoadAgentPlugins` in worker mode) and needed no change. Retrying on a timer and reporting unmatched workspaces remove the remaining silent-loss paths.
+
+**Status.** Implemented 2026-10-27; embedded plugin version 2. Regression tests drive the real embedded sources through a stubbed Core (`tests/integration/plugin-runtime.test.ts`), and both plugins were verified end-to-end against a live Core whose project row holds the git-bash form.
+
+## D-027 — Plugins record per-tool activity, not just session start/end (2026-10-27)
+
+**Decision.** Session lifecycle alone carries no insight into what an agent did, so the event contract and the Cline plugin gain activity rows:
+
+- **`agent_tool_call`** is a new event type (category `agent`, ingestible via `POST /api/ingest/events`). Its strict payload is `{ agent_id, session_id, tool, status: 'succeeded' | 'failed', duration_ms, target?, tool_call_id? }`. The plugin emits one row per completed `afterTool` call.
+- **`target`** is the first recognizable file path / command / query in the tool input, redacted with the same credential shapes as Core's export secret filter (`sk-…`, `ghp_…`, `AKIA…`, `password=`/`token=`/`secret=`/`api_key=`, bearer tokens, private-key markers) and truncated to 1024 chars. Raw tool inputs, outputs, prompts and model text are never sent.
+- **`agent_session_ended`** gains optional summary fields: `duration_ms`, `iterations`, `tool_call_count`, `failed_tool_call_count`, `files_touched` (≤ 100, write-like tools only), `input_tokens`, `output_tokens`. Because they are optional and the schema rejects only unknown keys, plugins older than v3 stay valid.
+- **Delivery/scope.** The Cline queue bound rises from 100 to 500 rows so a long run does not drop the head of its activity trail. Tool rows carry `session_id`, so Core's session-binding backfill attaches them to the claimed task when a binding exists; otherwise they remain project-level.
+- **OpenCode is unchanged.** Its tool-event surface has not been verified against the installed build; this decision does not guess at it.
+
+**Reason.** meetb reported that lifecycle events alone do not give the next agent enough information ("just start/stop is not enough"), and chose per-tool rows. Per-tool rows answer what ran, what changed and what failed without storing transcripts; the summary keeps the session row scannable even if a row is dropped. This supersedes D-022's "tool-call logging default off" clause for Cline.
+
+**Status.** Implemented 2026-10-27; embedded Cline plugin version 3. Covered by `tests/integration/plugin-runtime.test.ts` (redaction, counts, files, token usage, summary) and `tests/integration/ingest.test.ts` (acceptance and strict-payload rejection).
 
 ---
 

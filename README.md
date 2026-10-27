@@ -1,7 +1,6 @@
 # WorkJournal
 
-A local-first task-continuity system for AI coding agents: one agent can stop a
-task and another can resume it from stored records — progress checkpoints,
+A local-first task-continuity system for AI coding agents: one agent can stop a task, and another can resume it from stored records — progress checkpoints,
 decisions, and append-only event history — without the original conversation.
 
 ## What's in the box
@@ -10,7 +9,7 @@ decisions, and append-only event history — without the original conversation.
 |---|---|
 | **Core service** (`backend/packages/core`) | Fastify HTTP API; the only process that touches SQLite (registry + per-project DBs, `node:sqlite`) |
 | **MCP adapter** (`backend/packages/mcp-adapter`) | Exposes the WorkJournal tools to AI agents — stdio for native dev, Streamable HTTP (`/mcp`) for Docker/remote clients |
-| **Dashboard** (`frontend`) | React + Vite SPA: projects, tasks, history, resume context |
+| **Dashboard** (`frontend`) | React + Vite, SPA: projects, tasks, history, resume context |
 | **CLI** (`backend/packages/cli`) | start / stop / status / backup |
 
 ## Quick start — Docker

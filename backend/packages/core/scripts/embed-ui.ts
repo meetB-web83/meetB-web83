@@ -11,10 +11,11 @@
  * The output file is COMMITTED so a fresh clone typechecks and builds without
  * requiring a frontend build first (decision D-011).
  */
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { contentTypeFor } from '../src/ui/content-type.js';
+import { writeGeneratedFile } from './write-generated.js';
 
 const here = dirname(fileURLToPath(import.meta.url)); // packages/core/scripts/
 const distDir = resolve(here, '../../../../frontend/dist');
@@ -65,8 +66,8 @@ import type { UiAsset } from './ui-assets.js';
 export const embeddedUiFiles: Record<string, UiAsset> | null = ${JSON.stringify(embedded, null, 2)};
 `;
 
-writeFileSync(outFile, output);
+const { changed } = writeGeneratedFile(outFile, output);
 process.stdout.write(
-  `embed-ui: wrote ${relative(resolve(here, '../../../..'), outFile)} ` +
+  `embed-ui: ${changed ? 'wrote' : 'unchanged'} ${relative(resolve(here, '../../../..'), outFile)} ` +
     `(${embedded ? `${Object.keys(embedded).length} files` : 'null — API-only'})\n`,
 );

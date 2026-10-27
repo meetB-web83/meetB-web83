@@ -1092,6 +1092,38 @@ select {
     color: #ffffff;
 }
 
+/* ---- Task Toolbar (filters + view toggle left, pagination right) ---- */
+.task-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-md);
+    flex-wrap: wrap;
+    margin-bottom: var(--spacing-lg);
+}
+
+.task-toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    flex-wrap: wrap;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.task-toolbar .task-filters {
+    margin-bottom: 0;
+}
+
+.task-toolbar .pagination {
+    margin-top: 0;
+}
+
+.view-toggle {
+    display: flex;
+    gap: var(--spacing-xs);
+}
+
 /* ---- Task Filters (separate segments with gaps) ---- */
 .task-filters {
     display: flex;
@@ -1354,6 +1386,30 @@ select {
     white-space: nowrap;
     flex-shrink: 0;
 }
+
+.timeline-event-badge {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border: var(--border-thin);
+    flex-shrink: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+/* Category badges (authority via WS-3) */
+.category-task { background: var(--color-surface-lowest); color: var(--color-body); border-color: var(--color-structural); }
+.category-agent { background: var(--color-mint); color: var(--color-structural); border-color: var(--color-mint-deep); }
+.category-progress { background: var(--color-blue); color: #ffffff; border-color: var(--color-blue-deep); }
+.category-verification { background: var(--color-yellow); color: var(--color-structural); border-color: var(--color-orange); }
+.category-recovery { background: var(--color-lilac); color: var(--color-structural); border-color: var(--color-lilac); }
+.category-decision { background: var(--color-orange); color: #ffffff; border-color: var(--color-error); }
+
+/* Source badges (who produced the event) */
+.source-core { background: var(--color-surface-lowest); color: var(--color-body); border-color: var(--color-structural); }
+.source-mcp_tool { background: var(--color-blue-deep); color: #ffffff; border-color: var(--color-blue-deep); }
+.source-agent { background: var(--color-blue-deep); color: #ffffff; border-color: var(--color-blue-deep); }
 
 /* ---- Decisions ---- */
 .decision-list {

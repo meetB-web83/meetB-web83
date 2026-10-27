@@ -1,0 +1,26 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "codebase-memory-mcp": {
+        "type": "local",
+        "command": [
+          "C:/Users/meet.bhesaniya_moont/AppData/Local/Programs/codebase-memory-mcp/codebase-memory-mcp.exe"
+        ],
+        "disabled": false,
+        "timeout": 15000
+      },
+
+      "context7": {
+        "type": "remote",
+        "url": "https://mcp.context7.com/mcp"
+      }
+    },
+    "workjournal": {
+      "type": "local",
+      "command": ["workjournal.exe mcp", "--with-ui"],
+      "disabled": false,
+      "timeout": 30000
+    }
+  }
+}

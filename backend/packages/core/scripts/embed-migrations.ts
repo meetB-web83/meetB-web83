@@ -10,9 +10,10 @@
  * The output file is COMMITTED for the same reason as the UI embed: a fresh
  * clone must typecheck and build before any codegen has run.
  */
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { writeGeneratedFile } from './write-generated.js';
 
 const here = dirname(fileURLToPath(import.meta.url)); // packages/core/scripts/
 const outFile = resolve(here, '../src/db/embedded-migrations.generated.ts');
@@ -66,11 +67,14 @@ import type { MigrationFile } from './migrate.js';
 ${functions}
 `;
 
-writeFileSync(outFile, output);
+const { changed } = writeGeneratedFile(outFile, output);
 const summary = specs
   .map(({ exportName, dir }) => {
     const count = readMigrations(dir).length;
     return `${exportName}=${count} (${relative(resolve(here, '../../../..'), dir)})`;
   })
   .join(', ');
-process.stdout.write(`embed-migrations: wrote ${relative(resolve(here, '../../../..'), outFile)} — ${summary}\n`);
+process.stdout.write(
+  `embed-migrations: ${changed ? 'wrote' : 'unchanged'} ` +
+    `${relative(resolve(here, '../../../..'), outFile)} — ${summary}\n`,
+);

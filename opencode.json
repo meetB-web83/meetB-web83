@@ -14,13 +14,17 @@
       "context7": {
         "type": "remote",
         "url": "https://mcp.context7.com/mcp"
+      },
+      "workjournal": {
+        "type": "local",
+        "command": [
+          "C:\\Users\\meet.bhesaniya_moont\\AppData\\Local\\Programs\\workjournal\\workjournal.EXE",
+          "mcp",
+          "--with-ui"
+        ],
+        "disabled": false,
+        "timeout": 30000
       }
-    },
-    "workjournal": {
-      "type": "local",
-      "command": ["workjournal.exe mcp", "--with-ui"],
-      "disabled": false,
-      "timeout": 30000
     }
   }
 }
