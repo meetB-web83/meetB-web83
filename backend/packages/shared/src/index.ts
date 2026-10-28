@@ -1,3 +1,4 @@
+export * from './schemas/prompt.js';
 export * from './schemas/project.js';
 export * from './schemas/task.js';
 export * from './schemas/event.js';

@@ -8,6 +8,7 @@ export type ErrorCode =
   | 'OWNER_MISMATCH'
   | 'TASK_CLAIMED'
   | 'TASK_NOT_CLAIMED'
+  | 'BUILTIN_PROMPT_PROTECTED'
   | 'INTERNAL_ERROR';
 
 export class WorkJournalError extends Error {
@@ -72,6 +73,12 @@ export class TaskClaimedError extends WorkJournalError {
 export class TaskNotClaimedError extends WorkJournalError {
   constructor(message: string) {
     super('TASK_NOT_CLAIMED', message, 409);
+  }
+}
+
+export class BuiltinPromptProtectedError extends WorkJournalError {
+  constructor(message: string) {
+    super('BUILTIN_PROMPT_PROTECTED', message, 400);
   }
 }
 

@@ -5,6 +5,7 @@ import type { DecisionService } from './decision-service.js';
 import type { EventService } from './event-service.js';
 import type { ResumeBuilder } from '../resume/resume-builder.js';
 import type { JsonExporter } from '../export/json-export.js';
+import type { PromptService } from './prompt-service.js';
 import type { MarkdownExporter } from '../export/markdown-export.js';
 
 /** Service bundle bound to one database (the registry, or one project DB). */
@@ -16,5 +17,6 @@ export interface Services {
   events: EventService;
   resume: ResumeBuilder;
   jsonExport: JsonExporter;
+  prompts: PromptService;
   markdownExport: MarkdownExporter;
 }

@@ -11,6 +11,7 @@ import { registerCheckpointRoutes } from './routes/checkpoints.js';
 import { registerDecisionRoutes } from './routes/decisions.js';
 import { registerResumeRoutes } from './routes/resume.js';
 import { registerExportRoutes } from './routes/export.js';
+import { registerPromptRoutes } from './routes/prompts.js';
 import { registerDashboardRoutes } from './routes/dashboard.js';
 import { registerUiRoutes } from './ui.js';
 import { validateProjectsMount } from '../db/paths.js';
@@ -77,6 +78,7 @@ export function buildServer(db: Database, config: Config, options: BuildServerOp
   server.register(registerCheckpointRoutes, { prefix: '/api/checkpoints' });
   server.register(registerDecisionRoutes, { prefix: '/api/decisions' });
   server.register(registerResumeRoutes, { prefix: '/api/resume' });
+  server.register(registerPromptRoutes, { prefix: '/api/prompts' });
   server.register(registerExportRoutes, { prefix: '/api/export' });
   server.register(registerDashboardRoutes, { prefix: '/api/dashboard' });
 

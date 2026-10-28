@@ -2,6 +2,7 @@
 import { TaskService } from '../domain/task-service.js';
 import { ProjectService } from '../domain/project-service.js';
 import { CheckpointService } from '../domain/checkpoint-service.js';
+import { PromptService } from '../domain/prompt-service.js';
 import { DecisionService } from '../domain/decision-service.js';
 import { EventService } from '../domain/event-service.js';
 import { ResumeBuilder } from '../resume/resume-builder.js';
@@ -22,6 +23,7 @@ export function buildServices(db: Database, pathContext: PathContext | null = nu
     events: new EventService(db),
     resume: new ResumeBuilder(db),
     jsonExport: new JsonExporter(db),
+    prompts: new PromptService(db),
     markdownExport: new MarkdownExporter(db),
   };
 }
