@@ -8,6 +8,7 @@ import { Textarea } from '../components/ui/Textarea';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Spinner } from '../components/ui/Spinner';
 import { PageHeader } from '../components/layout/PageHeader';
+import { ToggleSwitch } from '../components/ui/ToggleSwitch';
 
 interface Prompt {
   id: string;
@@ -78,9 +79,9 @@ export default function PromptsPage() {
     }
   };
 
-  const toggle = async (p: Prompt) => {
+  const toggle = async (p: Prompt, to: boolean) => {
     try {
-      await api.post(`/prompts/${p.id}/toggle`, { enabled: !p.enabled, expected_version: p.version, idempotency_key: crypto.randomUUID() });
+      await api.post(`/prompts/${p.id}/toggle`, { enabled: to, expected_version: p.version, idempotency_key: crypto.randomUUID() });
       await load();
     } catch (e: any) {
       setError(e.message);
@@ -124,9 +125,9 @@ export default function PromptsPage() {
       {prompts.length === 0 ? (
         <EmptyState title="No prompts" />
       ) : (
-        <div className="prompt-list">
+        <div className="task-grid">
           {prompts.map((p) => (
-            <Card key={p.id}>
+            <Card key={p.id} onClick={() => startEdit(p)} style={{ cursor: 'pointer' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <strong>{p.name}</strong>
@@ -135,9 +136,9 @@ export default function PromptsPage() {
                   {!p.enabled && <Badge>disabled</Badge>}
                 </div>
                 <div>
-                  <Button onClick={() => toggle(p)}>{p.enabled ? 'Disable' : 'Enable'}</Button>
-                  <Button onClick={() => startEdit(p)}>Edit</Button>
-                  {!p.is_builtin && <Button onClick={() => remove(p.id)}>Delete</Button>}
+                  <ToggleSwitch options={[{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]} value={p.enabled ? 'on' : 'off'} onChange={(v) => toggle(p, v === 'on')} ariaLabel="Prompt enabled" />
+                  <Button variant="outline" onClick={() => preview(p.id)}>Preview</Button>
+                  {!p.is_builtin && <Button variant="secondary" onClick={() => remove(p.id)}>Delete</Button>}
                 </div>
               </div>
               {p.description && <p>{p.description}</p>}
