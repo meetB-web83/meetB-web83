@@ -29,7 +29,7 @@ export default function PromptsPage() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Prompt | null>(null);
   const [form, setForm] = useState({ name: '', description: '', category: 'custom', template: '', project_id: '' });
-  const [previewArgs, setPreviewArgs] = useState('{}');
+  const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewResult, setPreviewResult] = useState<string | null>(null);
 
   const load = async () => {
@@ -89,9 +89,9 @@ export default function PromptsPage() {
   };
 
   const preview = async (id: string) => {
+    setPreviewId(id);
     try {
-      const args = JSON.parse(previewArgs || '{}');
-      const res = await api.post<{ rendered: string }>(`/prompts/${id}/preview`, { args });
+      const res = await api.post<{ rendered: string }>(`/prompts/${id}/preview`, { args: {} });
       setPreviewResult(res.rendered);
     } catch (e: any) {
       setError(e.message);
@@ -111,47 +111,70 @@ export default function PromptsPage() {
         <PageHeader title="Prompts" description="Manage global and project-scoped prompts." kicker="</prompts>" />
       {error && <p className="error">{error}</p>}
 
-      <Card>
-        <h2>{editing ? 'Edit prompt' : 'New prompt'}</h2>
-        <Input label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-        <Input label="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-        <Input label="Category" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
-        <Textarea label="Template" value={form.template} onChange={(e) => setForm({ ...form, template: e.target.value })} />
-        <Input label="Project ID (optional)" value={form.project_id} onChange={(e) => setForm({ ...form, project_id: e.target.value })} />
-        <Button onClick={submit}>{editing ? 'Save' : 'Create'}</Button>
-        {editing && <Button onClick={() => { setEditing(null); setForm({ name: '', description: '', category: 'custom', template: '', project_id: '' }); }}>Cancel</Button>}
-      </Card>
-
-      {prompts.length === 0 ? (
-        <EmptyState title="No prompts" />
-      ) : (
-        <div className="task-grid">
-          {prompts.map((p) => (
-            <Card key={p.id} onClick={() => startEdit(p)} style={{ cursor: 'pointer' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <strong>{p.name}</strong>
-                  {p.is_builtin && <Badge>built-in</Badge>}
-                  {p.project_id ? <Badge>project</Badge> : <Badge>global</Badge>}
-                  {!p.enabled && <Badge>disabled</Badge>}
+        {prompts.length === 0 ? (
+          <EmptyState title="No prompts" description="Create your first prompt to get started." action={{ label: 'New prompt', onClick: () => setEditing({} as Prompt) }} />
+        ) : (
+          <div className="task-grid">
+            {prompts.map((p) => (
+              <Card key={p.id} onClick={() => startEdit(p)} style={{ cursor: 'pointer' }}>
+                <div className="task-card-header">
+                  <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <strong className="task-card-title">{p.name}</strong>
+                    {p.is_builtin && <Badge>built-in</Badge>}
+                    {p.project_id ? <Badge>project</Badge> : <Badge>global</Badge>}
+                    {!p.enabled && <Badge>disabled</Badge>}
+                  </div>
+                  <ToggleSwitch
+                    options={[{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]}
+                    value={p.enabled ? 'on' : 'off'}
+                    onChange={(v) => toggle(p, v === 'on')}
+                    ariaLabel="Prompt enabled"
+                  />
                 </div>
-                <div>
-                  <ToggleSwitch options={[{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]} value={p.enabled ? 'on' : 'off'} onChange={(v) => toggle(p, v === 'on')} ariaLabel="Prompt enabled" />
+                <div className="task-card-body">
+                  {p.description && <p className="task-card-objective">{p.description}</p>}
+                  <pre style={{ margin: '0.5rem 0', fontSize: '0.8rem' }}>{p.template}</pre>
+                </div>
+                <div className="task-card-footer" onClick={(e) => e.stopPropagation()}>
                   <Button variant="outline" onClick={() => preview(p.id)}>Preview</Button>
                   {!p.is_builtin && <Button variant="secondary" onClick={() => remove(p.id)}>Delete</Button>}
+                  {previewId === p.id && previewResult !== null && <pre style={{ marginTop: '0.5rem', width: '100%' }}>{previewResult}</pre>}
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+
+        {editing && (
+          <div className="modal-overlay" onClick={() => setEditing(null)}>
+            <div
+              className="modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label={editing ? 'Edit prompt' : 'New prompt'}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="modal-banner">
+                <span className="code-tag">{'</prompt>'}</span>
+                <button className="modal-close" onClick={() => setEditing(null)} aria-label="Close">
+                  ×
+                </button>
+              </div>
+              <div className="modal-body">
+                <h2 style={{ margin: '0 0 1rem' }}>{editing ? 'Edit prompt' : 'New prompt'}</h2>
+                <Input label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+                <Input label="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+                <Input label="Category" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
+                <Textarea label="Template" value={form.template} onChange={(e) => setForm({ ...form, template: e.target.value })} />
+                <Input label="Project ID (optional)" value={form.project_id} onChange={(e) => setForm({ ...form, project_id: e.target.value })} />
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <Button variant="primary" onClick={submit}>{editing ? 'Save' : 'Create'}</Button>
+                  <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
                 </div>
               </div>
-              {p.description && <p>{p.description}</p>}
-              <pre>{p.template}</pre>
-              <div>
-                <Input label="Preview args (JSON)" value={previewArgs} onChange={(e) => setPreviewArgs(e.target.value)} />
-                <Button onClick={() => preview(p.id)}>Preview</Button>
-                {previewResult && <pre>{previewResult}</pre>}
-              </div>
-            </Card>
-          ))}
-        </div>
-      )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
