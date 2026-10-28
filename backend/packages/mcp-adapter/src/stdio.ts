@@ -6,7 +6,7 @@ import { createMcpServer } from './server-factory.js';
  * stdout carries the MCP JSON-RPC stream.
  */
 export async function startStdioServer(coreUrl: string): Promise<void> {
-  const server = createMcpServer(coreUrl);
+  const server = await createMcpServer(coreUrl);
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

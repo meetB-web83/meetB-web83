@@ -120,7 +120,7 @@ export function createMcpHttpServer(config: AdapterConfig): Server {
     }
 
     if (req.method === 'POST' && isInitializeRequest(body)) {
-      const mcp = createMcpServer(config.coreUrl);
+      const mcp = await createMcpServer(config.coreUrl);
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (id) => {

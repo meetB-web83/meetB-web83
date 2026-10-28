@@ -8,12 +8,12 @@ import { syncPrompts } from './prompts/registry.js';
  * descriptions, schemas and handlers (root AGENTS.md: shared Zod schemas are
  * the single contract).
  */
-export function createMcpServer(coreUrl: string): McpServer {
+export async function createMcpServer(coreUrl: string): Promise<McpServer> {
   const server = new McpServer({
     name: 'workjournal',
     version: '0.1.0',
   });
   registerTools(server, coreUrl);
-  void syncPrompts(server, coreUrl, process.env.WORKJOURNAL_PROJECT_ID);
+  await syncPrompts(server, coreUrl, process.env.WORKJOURNAL_PROJECT_ID);
   return server;
 }
