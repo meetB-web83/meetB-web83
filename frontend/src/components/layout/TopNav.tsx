@@ -4,7 +4,7 @@ import { ScopeSelect } from '../projects/ScopeSelect';
 const links = [
   { to: '/', label: 'Home', accent: 'yellow' },
   { to: '/projects', label: 'Projects', accent: 'blue' },
-  { to: '/docs', label: 'Docs', accent: 'lilac' },
+  { to: '/prompts', label: 'Prompts', accent: 'lilac' },
 ] as const;
 
 function isActive(pathname: string, to: string) {
