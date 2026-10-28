@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerTools } from './tools/register.js';
+import { syncPrompts } from './prompts/registry.js';
 
 /**
  * Single place where the MCP server is created and tools are registered, so
@@ -13,5 +14,6 @@ export function createMcpServer(coreUrl: string): McpServer {
     version: '0.1.0',
   });
   registerTools(server, coreUrl);
+  void syncPrompts(server, coreUrl, process.env.WORKJOURNAL_PROJECT_ID);
   return server;
 }
