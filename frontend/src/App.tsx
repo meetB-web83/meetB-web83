@@ -9,6 +9,7 @@ import { ProjectDetailPage } from './pages/ProjectDetailPage';
 import { TaskDetailPage } from './pages/TaskDetailPage';
 import { ResumeContextPage } from './pages/ResumeContextPage';
 import { DocsPage } from './pages/DocsPage';
+import PromptsPage from './pages/PromptsPage';
 import { ApiReferencePage } from './pages/ApiReferencePage';
 
 export default function App() {
@@ -21,6 +22,7 @@ export default function App() {
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
           <Route path="/tasks/:taskId" element={<TaskDetailPage />} />
+          <Route path="/prompts" element={<PromptsPage />} />
           <Route path="/resume/:taskId" element={<ResumeContextPage />} />
           <Route path="/docs" element={<DocsPage />} />
           <Route path="/docs/api" element={<ApiReferencePage />} />
