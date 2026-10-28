@@ -3,6 +3,8 @@ import { api } from '../../lib/api';
 import { Button } from '../ui/Button';
 import { toast } from 'react-toastify';
 
+const OPERATOR = 'operator';
+
 interface TaskActionsProps {
   taskId: string;
   status: string;
@@ -19,7 +21,13 @@ export function TaskActions({ taskId, status, version, onAction }: TaskActionsPr
   const handleAction = async (action: string, body: Record<string, unknown> = {}) => {
     setLoading(true);
     try {
-      await api.post(`/tasks/${taskId}/${action}`, { task_id: taskId, expected_version: version, idempotency_key: crypto.randomUUID(), ...body });
+      await api.post(`/tasks/${taskId}/${action}`, {
+        task_id: taskId,
+        expected_version: version,
+        idempotency_key: crypto.randomUUID(),
+        agent_id: OPERATOR,
+        ...body,
+      });
       onAction();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Action failed');
@@ -37,19 +45,39 @@ export function TaskActions({ taskId, status, version, onAction }: TaskActionsPr
       )}
       {status === 'in_progress' && (
         <>
-          <Button variant="primary" size="sm" disabled={loading} onClick={() => handleAction('transition', { agent_id: 'operator', target_status: 'completed' })}>
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={loading}
+            onClick={() => handleAction('transition', { agent_id: OPERATOR, target_status: 'completed' })}
+          >
             Complete
           </Button>
-          <Button variant="secondary" size="sm" disabled={loading} onClick={() => handleAction('transition', { agent_id: 'operator', target_status: 'blocked', reason: 'Blocked' })}>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={loading}
+            onClick={() => handleAction('transition', { agent_id: OPERATOR, target_status: 'blocked', reason: 'Blocked by operator' })}
+          >
             Block
           </Button>
-          <Button variant="ghost" size="sm" disabled={loading} onClick={() => handleAction('release', { agent_id: 'operator' })}>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={loading}
+            onClick={() => handleAction('transition', { agent_id: OPERATOR, target_status: 'open', reason: 'Released by operator', resolution_note: 'Released' })}
+          >
             Release
           </Button>
         </>
       )}
       {status === 'blocked' && (
-        <Button variant="primary" size="sm" disabled={loading} onClick={() => handleAction('transition', { agent_id: 'operator', target_status: 'open', resolution_note: 'Unblocked' })}>
+        <Button
+          variant="primary"
+          size="sm"
+          disabled={loading}
+          onClick={() => handleAction('transition', { agent_id: OPERATOR, target_status: 'open', reason: 'Unblocked by operator', resolution_note: 'Unblocked' })}
+        >
           Unblock
         </Button>
       )}

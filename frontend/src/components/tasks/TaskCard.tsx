@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Task } from '../../hooks/useTasks';
 import { StatusBadge } from '../ui/StatusBadge';
 import { PriorityBadge } from '../ui/PriorityBadge';
@@ -9,8 +9,9 @@ interface TaskCardProps {
 }
 
 export function TaskCard({ task }: TaskCardProps) {
+  const location = useLocation();
   return (
-    <Link to={`/tasks/${task.id}`} className="task-card">
+    <Link to={`/tasks/${task.id}`} state={{ from: location }} className="task-card">
       <div className="task-card-header">
         <StatusBadge status={task.status} />
         <PriorityBadge priority={task.priority} />

@@ -1,4 +1,4 @@
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useLocation } from 'react-router-dom';
 import { useResumeContext } from '../hooks/useResumeContext';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -6,6 +6,7 @@ import { Spinner } from '../components/ui/Spinner';
 
 export function ResumeContextPage() {
   const { taskId } = useParams<{ taskId: string }>();
+  const location = useLocation();
   const { context, loading, error } = useResumeContext(taskId!);
 
   if (loading) return <Spinner />;
@@ -26,7 +27,7 @@ export function ResumeContextPage() {
             <Button variant="primary" onClick={() => navigator.clipboard.writeText(context)}>
               Copy to Clipboard
             </Button>
-            <Link to={`/tasks/${taskId}`}>
+            <Link to={`/tasks/${taskId}`} state={location.state}>
               <Button variant="secondary">Back to Task</Button>
             </Link>
           </div>

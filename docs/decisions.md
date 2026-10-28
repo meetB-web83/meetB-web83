@@ -505,6 +505,19 @@ Separately, `packages/core/scripts/write-generated.ts` now backs both embed scri
 
 **Status.** Implemented 2026-10-27; embedded Cline plugin version 3. Covered by `tests/integration/plugin-runtime.test.ts` (redaction, counts, files, token usage, summary) and `tests/integration/ingest.test.ts` (acceptance and strict-payload rejection).
 
+## D-028 — One-off DB recovery: restore WS-1..WS-10 task history from the discarded commit's DB snapshot (2026-10-28)
+
+**Decision.** The post-MVP workstream task tree (49 tasks: WS-1..WS-10 parents and subtasks WS-1.1..WS-10.4) existed only in the project DB snapshot carried by discarded commit `101d0fdf` (dangling, still in the local object store). The rollback to `eabdefe` had reverted `.workjournal/workjournal.db` to the pre-WS state, and the WS-2/WS-3 restart created *new* tasks with new IDs, leaving the original history unreachable. Recovery procedure (executed 2026-10-28):
+
+1. **Extract** `.workjournal/workjournal.db` + `-wal` from `101d0fdf` via `git cat-file blob`; replay the WAL and `VACUUM INTO` a clean snapshot. The snapshot's events table is the *intermediate* 002 variant (has `category`/`source`, lacks `event_id`/`occurred_at`), and its `__migrations` only records 001 — this predates the final 002 that landed in HEAD.
+2. **Merge, missing-rows-only, single transaction**, with the core service stopped and a timestamped pre-merge copy of the DB kept in `.workjournal/restore-backup-20261028-112400/` (SHA-256 `9d18bcfa…d9abd`): 49 tasks, 110 events (mapped `event_id=NULL`, `occurred_at=created_at` to match the final-002 backfill), 12 checkpoints, 2 decisions, 110 idempotency records. Verified: `integrity_check` ok, no FK violations, per-task event sequences contiguous from 1, shared idempotency keys byte-identical (0 mismatches). Final counts: 96 tasks / 391 events / 56 checkpoints / 13 decisions / 276 idempotency records.
+3. **Supersede duplicates via the API, not SQL.** The restored WS-3, WS-3.1..3.3, WS-9.5, WS-9.6 (open) were claimed and transitioned to `cancelled` by actor `operator` with reasons naming the restart task IDs. Old WS-2 (`completed`) is terminal (`TRANSITIONS[completed] = []`), so its supersession is recorded as a decision (`f4887189…`) stating the discarded work was restarted under task `f5669031…`; its completed subtasks WS-2.1..2.6 remain `completed` as historical fact.
+4. **Excluded:** 3 orphan `task_created`/`task_claimed`/`task_released` events of the deleted "hello world" demo task (`a552f438…`) — the task was deliberately deleted before the backup era, the events survived only because SQLite FKs were unenforced at the time; restoring them would reattach history to a task that no longer exists.
+
+**Reason.** This is a documented exception to the "no script writes SQLite directly" invariant: an operational, one-off recovery performed with the service stopped, inside one transaction, against a verified snapshot, followed by all status changes going through the core API's single transition function. The alternative — recreating 50 tasks through the API — would have fabricated new IDs, timestamps and event chains, destroying the very history being recovered.
+
+**Status.** Completed 2026-10-28; verified through the running core API (96 tasks: 35 completed, 47 open, 6 in_progress, 7 cancelled, 1 interrupted) and the dashboard. `.workjournal-old-bakup/` (MVP-era backup, fully redundant — audited row-by-row, 0 unique tasks) retained pending explicit cleanup.
+
 ---
 
 ### Citation note (housekeeping — plan-doc cleanup)

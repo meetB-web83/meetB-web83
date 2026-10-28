@@ -2,7 +2,7 @@ import type { TaskStatus } from '@workjournal/shared';
 import { TaskStatus as TS } from '@workjournal/shared';
 
 const TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
-  [TS.Open]: [TS.InProgress, TS.Cancelled],
+  [TS.Open]: [TS.InProgress, TS.Cancelled, TS.Completed],
   [TS.InProgress]: [TS.Open, TS.Blocked, TS.Completed, TS.Cancelled, TS.Interrupted],
   [TS.Blocked]: [TS.Open, TS.Cancelled],
   [TS.Interrupted]: [TS.InProgress, TS.Open, TS.Cancelled],

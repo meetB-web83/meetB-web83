@@ -1,4 +1,4 @@
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useLocation } from 'react-router-dom';
 import { useTask } from '../hooks/useTasks';
 import { Card } from '../components/ui/Card';
 import { StatusBadge } from '../components/ui/StatusBadge';
@@ -6,16 +6,22 @@ import { PriorityBadge } from '../components/ui/PriorityBadge';
 import { Spinner } from '../components/ui/Spinner';
 import { TaskActions } from '../components/tasks/TaskActions';
 import { Button } from '../components/ui/Button';
+import { EventHistoryDialog } from '../components/ui/EventHistoryDialog';
 import { formatDateTime } from '../lib/format';
 import { api } from '../lib/api';
 import { useState, useEffect } from 'react';
 
 export function TaskDetailPage() {
   const { taskId } = useParams<{ taskId: string }>();
+  const location = useLocation();
   const { task, loading, error } = useTask(taskId!);
   const [checkpoints, setCheckpoints] = useState<any[]>([]);
   const [events, setEvents] = useState<any[]>([]);
   const [decisions, setDecisions] = useState<any[]>([]);
+  const [showEvents, setShowEvents] = useState(false);
+  // Task links carry { from: location } so "Back to Tasks" restores the exact
+  // list URL (filters, page, view) instead of the bare project path.
+  const backState = location.state as { from?: { pathname: string; search?: string } } | null;
 
   const loadDetails = async () => {
     if (!taskId) return;
@@ -41,7 +47,10 @@ export function TaskDetailPage() {
   return (
     <div className="page">
       <div className="container">
-        <Link to={`/projects/${task.project_id}`} className="btn btn-secondary back-btn">
+        <Link
+          to={backState?.from ?? `/projects/${task.project_id}`}
+          className="btn btn-secondary back-btn"
+        >
           <span className="btn-arrow btn-arrow-left" aria-hidden="true">
             ←
           </span>
@@ -108,17 +117,12 @@ export function TaskDetailPage() {
             {events.length === 0 ? (
               <div className="empty-box">No events recorded yet.</div>
             ) : (
-              <div className="timeline">
-                {events.slice().reverse().map((ev) => (
-                  <div key={ev.id} className="timeline-event">
-                    <span className={`timeline-event-badge category-${ev.category}`}>{ev.category}</span>
-                    <span className={`timeline-event-badge source-${ev.source.split(':')[0]}`}>{ev.source}</span>
-                    <span className="timeline-event-type">{ev.event_type}</span>
-                    <span className="timeline-event-actor">{ev.actor}</span>
-                    <span className="timeline-event-time">{formatDateTime(ev.created_at)}</span>
-                  </div>
-                ))}
-              </div>
+              <>
+                <div className="empty-box">{events.length} event(s) recorded.</div>
+                <Button variant="secondary" size="sm" onClick={() => setShowEvents(true)}>
+                  View all events
+                </Button>
+              </>
             )}
           </div>
         </div>
@@ -146,10 +150,17 @@ export function TaskDetailPage() {
 
         {/* Resume Context Link */}
         <div className="mt-lg">
-          <Link to={`/resume/${task.id}`}>
+          <Link to={`/resume/${task.id}`} state={location.state}>
             <Button variant="secondary">View Resume Context</Button>
           </Link>
         </div>
+
+        <EventHistoryDialog
+          scope={{ task_id: taskId }}
+          open={showEvents}
+          onClose={() => setShowEvents(false)}
+          title="Task event history"
+        />
       </div>
     </div>
   );

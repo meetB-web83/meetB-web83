@@ -1119,9 +1119,58 @@ select {
     margin-top: 0;
 }
 
-.view-toggle {
-    display: flex;
-    gap: var(--spacing-xs);
+/* ---- Toggle Switch (segmented knob control) ---- */
+.toggle-switch {
+    position: relative;
+    display: inline-flex;
+    align-items: stretch;
+    border: var(--border-thick);
+    background: var(--color-surface-lowest);
+    box-shadow: var(--shadow-hard-sm);
+    isolation: isolate;
+}
+
+.toggle-switch-knob {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 0;
+    background: var(--color-structural);
+    transition: transform 140ms steps(4, end);
+}
+
+.toggle-switch-option {
+    position: relative;
+    z-index: 1;
+    appearance: none;
+    border: 0;
+    border-left: var(--border-thin);
+    background: transparent;
+    padding: 0 var(--spacing-md);
+    height: 36px;
+    min-width: 72px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-ink);
+    cursor: pointer;
+    transition: color 140ms steps(4, end);
+}
+
+.toggle-switch-option:first-of-type {
+    border-left: none;
+}
+
+.toggle-switch-option.is-active {
+    color: var(--color-on-primary);
+}
+
+.toggle-switch-option:focus-visible {
+    outline: var(--border-thick);
+    outline-offset: -6px;
 }
 
 /* ---- Task Filters (separate segments with gaps) ---- */

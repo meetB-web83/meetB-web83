@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Task } from '../../hooks/useTasks';
 import { TaskCard } from './TaskCard';
 import { StatusBadge } from '../ui/StatusBadge';
@@ -15,6 +15,7 @@ interface TaskListProps {
 }
 
 export function TaskList({ tasks, loading, error, view = 'cards' }: TaskListProps) {
+  const location = useLocation();
   if (loading) return <Spinner />;
   if (error) return <EmptyState title="Error loading tasks" description={error} />;
   if (tasks.length === 0) return <EmptyState title="No tasks found" description="Create a task to get started." />;
@@ -23,7 +24,7 @@ export function TaskList({ tasks, loading, error, view = 'cards' }: TaskListProp
     return (
       <div className="task-list">
         {tasks.map((task) => (
-          <Link to={`/tasks/${task.id}`} className="task-row" key={task.id}>
+          <Link to={`/tasks/${task.id}`} state={{ from: location }} className="task-row" key={task.id}>
             <div className="task-row-main">
               <span className="task-row-title">{task.title}</span>
               <div className="task-row-meta">

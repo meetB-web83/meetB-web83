@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "workjournal": {
+      "command": "workjournal.exe",
+      "args": ["--with-ui"]
+    }
+  }
+}

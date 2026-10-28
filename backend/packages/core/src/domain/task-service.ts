@@ -13,6 +13,7 @@ import {
   OwnerMismatchError,
   TaskClaimedError,
   InvalidTransitionError,
+  OPERATOR,
 } from '@workjournal/shared';
 
 /**
@@ -277,7 +278,10 @@ export class TaskService {
       () => {
         const task = this.getTask(taskId);
 
-        if (task.owner !== agentId) {
+        const isOperator = agentId === OPERATOR;
+        // The reserved `operator` actor bypasses current-owner enforcement and the
+        // agent-ID project-suffix validation (root AGENTS.md: identity).
+        if (!isOperator && task.owner !== agentId) {
           throw new OwnerMismatchError(
             task.owner ? `Task is owned by ${task.owner}.` : 'Task is unclaimed; claim it before transitioning it.',
           );
@@ -286,7 +290,7 @@ export class TaskService {
           throw new StaleVersionError(`Expected version ${expectedVersion}, found ${task.version}. Re-read the task and retry.`);
         }
 
-        // Scope Â§5: cancellation, blocking and interruption require a reason; unblocking
+        // Scope §5: cancellation, blocking and interruption require a reason; unblocking
         // records a resolution note.
         if ([TaskStatus.Cancelled, TaskStatus.Blocked, TaskStatus.Interrupted].includes(targetStatus as any)
           && !reason?.trim()) {

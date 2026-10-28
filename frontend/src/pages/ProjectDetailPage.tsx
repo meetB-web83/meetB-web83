@@ -1,17 +1,18 @@
 import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useProject } from '../hooks/useProject';
 import { useTasks } from '../hooks/useTasks';
 import { TaskList } from '../components/tasks/TaskList';
 import { TaskFilters } from '../components/tasks/TaskFilters';
 import { Pagination } from '../components/ui/Pagination';
+import { ToggleSwitch } from '../components/ui/ToggleSwitch';
 import { PageHeader } from '../components/layout/PageHeader';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
 import { api } from '../lib/api';
 import { Spinner } from '../components/ui/Spinner';
-import { formatDateTime } from '../lib/format';
+import { EventHistoryDialog } from '../components/ui/EventHistoryDialog';
 import { toast } from 'react-toastify';
 
 const PAGE_SIZE = 25;
@@ -19,12 +20,34 @@ const PAGE_SIZE = 25;
 export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const { project, loading: projectLoading } = useProject(projectId!);
-  const [statusFilter, setStatusFilter] = useState('');
-  const [priorityFilter, setPriorityFilter] = useState('');
-  const [page, setPage] = useState(0);
-  const [view, setView] = useState<'cards' | 'list'>('cards');
+  // Toolbar state (status, priority, page, view) lives in the URL search params so
+  // it survives navigating into a task and back — component state reset on return.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const statusFilter = searchParams.get('status') ?? '';
+  const priorityFilter = searchParams.get('priority') ?? '';
+  const view: 'cards' | 'list' = searchParams.get('view') === 'list' ? 'list' : 'cards';
+  const pageParam = Number.parseInt(searchParams.get('page') ?? '1', 10);
+  const page = Number.isFinite(pageParam) && pageParam > 1 ? pageParam - 1 : 0;
+
+  const updateParams = (updates: Record<string, string | null>) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      for (const [key, val] of Object.entries(updates)) {
+        if (val) next.set(key, val);
+        else next.delete(key);
+      }
+      return next;
+    });
+  };
+
+  const handleStatusChange = (status: string) => updateParams({ status, page: null });
+  const handlePriorityChange = (priority: string) => updateParams({ priority, page: null });
+  const handleViewChange = (v: 'cards' | 'list') => updateParams({ view: v === 'list' ? 'list' : null });
+  const goToPage = (p: number) => updateParams({ page: p > 0 ? String(p + 1) : null });
+
   const [projectEvents, setProjectEvents] = useState<any[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
+  const [showProjectEvents, setShowProjectEvents] = useState(false);
   const { tasks, loading: tasksLoading, error } = useTasks(
     projectId!,
     { status: statusFilter, priority: priorityFilter },
@@ -32,10 +55,6 @@ export function ProjectDetailPage() {
   );
   const pageTasks = tasks.slice(0, PAGE_SIZE);
   const hasNext = tasks.length > PAGE_SIZE;
-
-  useEffect(() => {
-    setPage(0);
-  }, [projectId, statusFilter, priorityFilter]);
 
   useEffect(() => {
     let cancelled = false;
@@ -142,23 +161,24 @@ export function ProjectDetailPage() {
             <TaskFilters
               status={statusFilter}
               priority={priorityFilter}
-              onStatusChange={setStatusFilter}
-              onPriorityChange={setPriorityFilter}
+              onStatusChange={handleStatusChange}
+              onPriorityChange={handlePriorityChange}
             />
-            <div className="view-toggle">
-              <Button variant={view === 'cards' ? 'primary' : 'ghost'} size="sm" onClick={() => setView('cards')}>
-                Cards
-              </Button>
-              <Button variant={view === 'list' ? 'primary' : 'ghost'} size="sm" onClick={() => setView('list')}>
-                List
-              </Button>
-            </div>
+            <ToggleSwitch
+              ariaLabel="Task view"
+              options={[
+                { value: 'cards', label: 'Cards' },
+                { value: 'list', label: 'List' },
+              ]}
+              value={view}
+              onChange={handleViewChange}
+            />
           </div>
           <Pagination
             page={page}
             hasNext={hasNext}
-            onPrev={() => setPage((p) => Math.max(0, p - 1))}
-            onNext={() => setPage((p) => p + 1)}
+            onPrev={() => goToPage(Math.max(0, page - 1))}
+            onNext={() => goToPage(page + 1)}
           />
         </div>
 
@@ -172,19 +192,20 @@ export function ProjectDetailPage() {
           ) : projectEvents.length === 0 ? (
             <div className="empty-box">No project-level activity yet.</div>
           ) : (
-            <div className="timeline">
-              {projectEvents.slice().reverse().map((ev) => (
-                <div key={ev.id} className="timeline-event">
-                  <span className={`timeline-event-badge category-${ev.category}`}>{ev.category}</span>
-                  <span className={`timeline-event-badge source-${ev.source.split(':')[0]}`}>{ev.source}</span>
-                  <span className="timeline-event-type">{ev.event_type}</span>
-                  <span className="timeline-event-actor">{ev.actor}</span>
-                  <span className="timeline-event-time">{formatDateTime(ev.created_at)}</span>
-                </div>
-              ))}
-            </div>
+            <>
+              <div className="empty-box">{projectEvents.length} event(s) recorded.</div>
+              <Button variant="secondary" size="sm" onClick={() => setShowProjectEvents(true)}>
+                View all events
+              </Button>
+            </>
           )}
         </div>
+        <EventHistoryDialog
+          scope={{ project_id: projectId! }}
+          open={showProjectEvents}
+          onClose={() => setShowProjectEvents(false)}
+          title="Project activity"
+        />
       </div>
     </div>
   );
