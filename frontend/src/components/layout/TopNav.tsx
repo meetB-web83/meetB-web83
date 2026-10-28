@@ -6,7 +6,6 @@ const links = [
   { to: '/projects', label: 'Projects', accent: 'blue' },
   { to: '/prompts', label: 'Prompts', accent: 'lilac' },
   { to: '/docs', label: 'Docs', accent: 'lilac' },
-  { to: '/prompts', label: 'Prompts', accent: 'lilac' },
 ] as const;
 
 function isActive(pathname: string, to: string) {
