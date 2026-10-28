@@ -7,6 +7,7 @@ import { Input } from '../components/ui/Input';
 import { Textarea } from '../components/ui/Textarea';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Spinner } from '../components/ui/Spinner';
+import { PageHeader } from '../components/layout/PageHeader';
 
 interface Prompt {
   id: string;
@@ -104,8 +105,9 @@ export default function PromptsPage() {
   if (loading) return <Spinner />;
 
   return (
-    <div className="prompts-page">
-      <h1>Prompts</h1>
+<div className="page">
+      <div className="container">
+        <PageHeader title="Prompts" description="Manage global and project-scoped prompts." kicker="</prompts>" />
       {error && <p className="error">{error}</p>}
 
       <Card>
@@ -149,6 +151,7 @@ export default function PromptsPage() {
           ))}
         </div>
       )}
+      </div>
     </div>
   );
 }
