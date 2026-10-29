@@ -13,11 +13,10 @@
     "declarationMap": true,
     "sourceMap": true,
     "outDir": "dist",
-    "rootDir": "src",
     "baseUrl": ".",
     "paths": {
-      "@workjournal/shared": ["../shared/src"],
-      "@workjournal/core": ["../core/src"]
+      "@workjournal/shared": ["../shared/src/index.ts"],
+      "@workjournal/core": ["../core/src/index.ts"]
     }
   },
   "include": ["src/**/*"],
