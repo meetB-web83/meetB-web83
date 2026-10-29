@@ -530,11 +530,7 @@ select {
     display: inline-flex;
     align-items: center;
     height: 100%;
-    padding: 0 14px;
-}
-
-.btn--with-arrow > span.btn-label {
-    padding-right: 10px;
+    padding: 0 20px;
 }
 
 .btn-primary {
@@ -585,7 +581,7 @@ select {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 36px;
+    width: 44px;
     height: 100%;
     flex-shrink: 0;
     background: var(--color-blue);
@@ -605,7 +601,7 @@ select {
 }
 
 .btn-sm > span.btn-label {
-    padding: 0 12px;
+    padding: 0 16px;
 }
 
 .btn-sm .btn-arrow {

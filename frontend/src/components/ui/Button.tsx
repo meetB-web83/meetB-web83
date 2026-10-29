@@ -30,7 +30,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     return (
       <button
         ref={ref}
-        className={`btn ${variantStyles[variant]} ${sizeStyles[size]} ${showArrow ? 'btn--with-arrow' : ''} ${className}`}
+        className={`btn ${variantStyles[variant]} ${sizeStyles[size]} ${className}`}
         {...props}
       >
         <span className="btn-label">{children}</span>

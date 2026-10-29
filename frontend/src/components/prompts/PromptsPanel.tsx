@@ -35,6 +35,28 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Request failed';
 }
 
+function byName(a: Prompt, b: Prompt): number {
+  return a.name.localeCompare(b.name);
+}
+
+/**
+ * Project view: project rows win over same-named global/built-in rows (D-020).
+ * The winning project row is badged "shadows global"; the shadowed row is hidden.
+ * Everything else global is shown as read-only inherited context.
+ */
+function mergeResolved(projectRows: Prompt[], globalRows: Prompt[]): PromptView[] {
+  const globalByName = new Map(globalRows.map((row) => [row.name, row]));
+  const projectNames = new Set(projectRows.map((row) => row.name));
+  const project = projectRows
+    .map<PromptView>((row) => ({ ...row, shadowsGlobal: globalByName.has(row.name), inherited: false }))
+    .sort(byName);
+  const inherited = globalRows
+    .filter((row) => !projectNames.has(row.name))
+    .map<PromptView>((row) => ({ ...row, inherited: true }))
+    .sort(byName);
+  return [...project, ...inherited];
+}
+
 export const PromptsPanel = forwardRef<PromptsPanelHandle, PromptsPanelProps>(function PromptsPanel(
   { projectId },
   ref,
@@ -54,8 +76,11 @@ export const PromptsPanel = forwardRef<PromptsPanelHandle, PromptsPanelProps>(fu
       if (showSpinner) setLoading(true);
       try {
         if (projectId) {
-          const rows = await api.get<PromptView[]>(`/prompts?scope=project&project_id=${encodeURIComponent(projectId)}&resolved=true`);
-          setPrompts(rows);
+          const [projectRows, globalRows] = await Promise.all([
+            api.get<Prompt[]>(`/prompts?scope=project&project_id=${encodeURIComponent(projectId)}`),
+            api.get<Prompt[]>('/prompts?scope=global'),
+          ]);
+          setPrompts(mergeResolved(projectRows, globalRows));
         } else {
           const rows = await api.get<Prompt[]>('/prompts?scope=global');
           setPrompts(rows.map((row) => ({ ...row, inherited: false })));
