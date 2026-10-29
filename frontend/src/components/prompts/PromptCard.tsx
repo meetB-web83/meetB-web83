@@ -1,7 +1,6 @@
 import { KeyboardEvent } from "react";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
-import { ToggleSwitch } from "../ui/ToggleSwitch";
 import type { Prompt, PromptView } from "./types";
 
 interface PromptCardProps {
@@ -44,7 +43,14 @@ export function PromptCard({
           <strong className="task-card-title">{prompt.name}</strong>
           <div className="prompt-card-badges">
             {prompt.is_builtin && <Badge>built-in</Badge>}
-            {prompt.project_id ? <Badge>project</Badge> : <Badge>global</Badge>}
+            {prompt.project_id ? (
+              <Badge>project</Badge>
+            ) : (
+              <Badge variant="info">global</Badge>
+            )}
+            <Badge variant="outline" className="prompt-card-category-badge">
+              {prompt.category}
+            </Badge>
             {prompt.shadowsGlobal && (
               <Badge variant="info">shadows global</Badge>
             )}
@@ -64,7 +70,6 @@ export function PromptCard({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="prompt-card-footer-left">
-          <span className="task-card-meta">{prompt.category}</span>
           <div className="prompt-card-actions">
             <Button
               variant="outline"
@@ -82,24 +87,22 @@ export function PromptCard({
                 Delete
               </Button>
             )}
+            {!readOnly && (
+              <Button
+                variant="outline"
+                size="sm"
+                className={`prompt-card-toggle-btn ${prompt.enabled ? "toggle-on" : "toggle-off"}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onToggle(prompt, !prompt.enabled);
+                }}
+                aria-label={`${prompt.name} ${prompt.enabled ? "disable" : "enable"}`}
+                aria-pressed={prompt.enabled}
+              >
+                {prompt.enabled ? "ON" : "OFF"}
+              </Button>
+            )}
           </div>
-
-          {!readOnly && (
-            <div
-              className="prompt-card-toggle"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <ToggleSwitch
-                options={[
-                  { value: "on", label: "On" },
-                  { value: "off", label: "Off" },
-                ]}
-                value={prompt.enabled ? "on" : "off"}
-                onChange={(value) => onToggle(prompt, value === "on")}
-                ariaLabel={`${prompt.name} enabled`}
-              />
-            </div>
-          )}
         </div>
       </div>
     </div>

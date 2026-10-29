@@ -134,7 +134,17 @@ async function main(): Promise<void> {
     format: 'cjs',
     target: 'node22',
     define: { 'import.meta.dirname': 'undefined' },
-    alias: { 'jsonc-parser': jsoncEsmEntry },
+    alias: {
+      'jsonc-parser': jsoncEsmEntry,
+      '@workjournal/core': join(backendRoot, 'packages/core/dist/core/src/index.js'),
+      '@workjournal/shared': join(backendRoot, 'packages/shared/dist/index.js'),
+      '@workjournal/mcp-adapter/config': join(backendRoot, 'packages/mcp-adapter/dist/mcp-adapter/src/config.js'),
+      '@workjournal/mcp-adapter/autostart': join(backendRoot, 'packages/mcp-adapter/dist/mcp-adapter/src/autostart.js'),
+      '@workjournal/mcp-adapter/http-server': join(backendRoot, 'packages/mcp-adapter/dist/mcp-adapter/src/http-server.js'),
+      '@workjournal/mcp-adapter/stdio': join(backendRoot, 'packages/mcp-adapter/dist/mcp-adapter/src/stdio.js'),
+      '@workjournal/mcp-adapter/validate-headers': join(backendRoot, 'packages/mcp-adapter/dist/mcp-adapter/src/validate-headers.js'),
+      '@workjournal/mcp-adapter/server-factory': join(backendRoot, 'packages/mcp-adapter/dist/mcp-adapter/src/server-factory.js'),
+    },
     logLevel: 'info',
   });
   if (result.errors.length > 0) {

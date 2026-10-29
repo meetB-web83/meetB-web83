@@ -1,6 +1,6 @@
 import { HTMLAttributes, forwardRef } from 'react';
 
-type Variant = 'default' | 'success' | 'warning' | 'error' | 'info' | 'dark';
+type Variant = 'default' | 'success' | 'warning' | 'error' | 'info' | 'dark' | 'outline';
 
 interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
   variant?: Variant;
@@ -13,6 +13,7 @@ const variantStyles: Record<Variant, string> = {
   error: 'badge-error',
   info: 'badge-info',
   dark: 'badge-dark',
+  outline: 'badge-outline',
 };
 
 export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(

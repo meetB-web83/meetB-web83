@@ -16,7 +16,14 @@
     "baseUrl": ".",
     "paths": {
       "@workjournal/shared": ["../shared/src/index.ts"],
-      "@workjournal/core": ["../core/src/index.ts"]
+      "@workjournal/core": ["../core/src/index.ts"],
+      "@workjournal/mcp-adapter": ["../mcp-adapter/src/index.ts"],
+      "@workjournal/mcp-adapter/config": ["../mcp-adapter/src/config.ts"],
+      "@workjournal/mcp-adapter/autostart": ["../mcp-adapter/src/autostart.ts"],
+      "@workjournal/mcp-adapter/http-server": ["../mcp-adapter/src/http-server.ts"],
+      "@workjournal/mcp-adapter/stdio": ["../mcp-adapter/src/stdio.ts"],
+      "@workjournal/mcp-adapter/validate-headers": ["../mcp-adapter/src/validate-headers.ts"],
+      "@workjournal/mcp-adapter/server-factory": ["../mcp-adapter/src/server-factory.ts"]
     }
   },
   "include": ["src/**/*"],
