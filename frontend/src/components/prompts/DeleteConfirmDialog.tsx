@@ -14,6 +14,7 @@ export function DeleteConfirmDialog({
   onClose,
   submitting,
 }: DeleteConfirmDialogProps) {
+  if (!promptName) return null;
   return createPortal(
     <div className="modal-overlay modal-overlay--raised" onClick={onClose}>
       <div

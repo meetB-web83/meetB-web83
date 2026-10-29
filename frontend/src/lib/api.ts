@@ -1,8 +1,9 @@
 const BASE_URL = '/api';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const hasBody = !!options?.body;
   const response = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: hasBody ? { 'Content-Type': 'application/json' } : {},
     ...options,
   });
 
@@ -11,7 +12,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     throw new Error(error.message || `HTTP ${response.status}`);
   }
 
-  return response.json();
+  const text = await response.text();
+  return text ? (JSON.parse(text) as T) : (null as unknown as T);
 }
 
 export const api = {
