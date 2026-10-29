@@ -1,4 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
 
 export interface PromptRow {
   id: string;
@@ -18,13 +19,22 @@ export async function syncPrompts(server: McpServer, coreUrl: string, projectId?
   const prompts = (await res.json()) as PromptRow[];
   for (const p of prompts) {
     if (!p.enabled) continue;
-    server.registerPrompt(p.name, { description: p.name }, async (args: any) => {
+    server.registerPrompt(p.name, {
+      description: p.name,
+      argsSchema: {
+        request: z.string().optional(),
+      },
+    }, async (args: any) => {
       // re-fetch current row
       const r = await fetch(`${coreUrl}/api/prompts/${p.id}`);
       const row = r.ok ? ((await r.json()) as PromptRow) : p;
       let text = row.template;
       for (const [k, v] of Object.entries(args || {})) {
         text = text.replace(new RegExp(`{{\\s*${k}\\s*}}`, 'g'), String(v));
+      }
+      // Append trailing request text if provided
+      if (args?.request) {
+        text += `\n\n---\n\nUser request: ${args.request}`;
       }
       return { messages: [{ role: 'user', content: { type: 'text', text } }] };
     });
