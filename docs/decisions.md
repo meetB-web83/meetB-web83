@@ -523,3 +523,17 @@ Separately, `packages/core/scripts/write-generated.ts` now backs both embed scri
 ### Citation note (housekeeping — plan-doc cleanup)
 
 The post-MVP plan (§1 "Existing Architecture & Behavior") cites "decision D-011" for SEA-embedded migrations/committed embed files. In `docs/decisions.md` that content is recorded as **D-012** (SEA single executable, 2026-10-19); **D-011** is the `PROJECTS_DIRECTORY`/Docker path-mapping decision. The discrepancy was carried into WS-1.2's task context but, per WS-1.2 constraints, the plan document itself was not edited; this note records it for a future plan-doc cleanup pass. All other plan decision citations (D-013..D-015 autostart/PID, D-020..D-023) match `docs/decisions.md`.
+
+## D-029 — Prompts dashboard UI: shared panel, scope implied by host (2026-10-29)
+
+**Decision.** Reworked the prompts UI around the existing task-page card style:
+
+- **`components/prompts/PromptCard`** mirrors `components/tasks/TaskCard`: `div.task-card` root, graph-paper `task-card-header` (name + badges + toggle pinned right), `task-card-body` (description + clamped mono template), `task-card-footer` (version/category meta + Preview/Edit/Delete). Card click opens the edit dialog; controls stop propagation so ON/OFF never opens the editor.
+- **`components/prompts/PromptsPanel`** owns list + CRUD + dialogs and is reused by both surfaces. Scope is implied by the host — **no project-ID text field** in the form (meetb override). Host passes `projectId`:
+  - `PromptsPage` → global-only fetch (`scope=global`), header gets a **New prompt** button (segmented black + blue-arrow style, same as "New Task").
+  - `ProjectDetailPage` → "Prompts" header button opens a near-fullscreen dialog (`.modal-overlay--lg` + `.modal--lg` at `min(1440px, 92vw)`) titled "Project Prompts" containing `<PromptsPanel projectId={projectId} />`.
+- Project view merges `GET /prompts?scope=project&project_id=X` plus `GET /prompts?scope=global` client-side: project rows win over same-named global/built-in rows (D-020 shadowing) with a **"shadows global"** badge; unshadowed global/built-in rows render as read-only **inherited** context (Preview only). The API `resolved=1` mode is intentionally **not** used because it drops disabled rows entirely, which would hide prompts that must be re-toggled on.
+- Templates render in a clamped mono block with `overflow-wrap: anywhere` (fixes clipped text); preview output shows in its own modal instead of an inline footer dump.
+
+**Status.** Implemented 2026-10-29; awaiting typecheck + build verification.
+

@@ -38,7 +38,9 @@ src/
 │   ├── ui/           # Button, Card, Badge, Input, Textarea, Select, Spinner, EmptyState, StatusBadge, PriorityBadge, Pagination
 │   ├── layout/       # TopNav, Footer, PageHeader
 │   ├── tasks/        # TaskCard, TaskList, TaskFilters, TaskActions
-│   └── projects/     # ProjectCard, ProjectList, ProjectSelect
+│   ├── projects/     # ProjectCard, ProjectList, ProjectSelect
+│   ├── prompts/      # PromptCard, PromptsPanel, PromptFormDialog, PromptPreviewDialog
+│   └── ...
 ├── pages/            # HomePage, ProjectsPage, ProjectDetailPage, TaskDetailPage, ResumeContextPage, DocsPage, ApiReferencePage
 ├── hooks/            # useProjects, useProject, useTasks, useResumeContext, useDashboard
 ├── lib/              # api client, formatters

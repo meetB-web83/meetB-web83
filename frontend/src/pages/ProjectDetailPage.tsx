@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useProject } from '../hooks/useProject';
 import { useTasks } from '../hooks/useTasks';
@@ -11,6 +11,8 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
 import { api } from '../lib/api';
+import { PromptsPanel } from '../components/prompts/PromptsPanel';
+import type { PromptsPanelHandle } from '../components/prompts/PromptsPanel';
 import { Spinner } from '../components/ui/Spinner';
 import { EventHistoryDialog } from '../components/ui/EventHistoryDialog';
 import { toast } from 'react-toastify';
@@ -74,6 +76,8 @@ export function ProjectDetailPage() {
     return () => { cancelled = true; };
   }, [projectId]);
   const [showForm, setShowForm] = useState(false);
+  const [showPrompts, setShowPrompts] = useState(false);
+  const promptPanelRef = useRef<PromptsPanelHandle>(null);
   const [title, setTitle] = useState('');
   const [objective, setObjective] = useState('');
   const [priority, setPriority] = useState('medium');
@@ -114,11 +118,52 @@ export function ProjectDetailPage() {
           description={project.description || undefined}
           kicker="</project>"
           actions={
-            <Button variant="primary" onClick={() => setShowForm(true)}>
-              New Task
-            </Button>
+            <>
+              <Button variant="secondary" onClick={() => setShowPrompts(true)}>
+                Prompts
+              </Button>
+              <Button variant="primary" onClick={() => setShowForm(true)}>
+                New Task
+              </Button>
+            </>
           }
         />
+
+        {showPrompts && (
+          <div className="modal-overlay modal-overlay--lg" onClick={() => setShowPrompts(false)}>
+            <div
+              className="modal modal--lg"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Project prompts"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="modal-banner">
+                <span className="code-tag">{'</project-prompts>'}</span>
+                <button className="modal-close" onClick={() => setShowPrompts(false)} aria-label="Close">
+                  ×
+                </button>
+              </div>
+              <div className="modal-body modal-body--lg">
+                <div className="modal-header-row">
+                  <div>
+                    <h2 className="modal-title">Project Prompts</h2>
+                    <p className="modal-subtitle">
+                      Prompts owned by <strong>{project.name}</strong> plus inherited global prompts.
+                    </p>
+                  </div>
+                  <Button
+                    variant="primary"
+                    onClick={() => promptPanelRef.current?.openCreate()}
+                  >
+                    New prompt
+                  </Button>
+                </div>
+                <PromptsPanel ref={promptPanelRef} projectId={projectId!} />
+              </div>
+            </div>
+          </div>
+        )}
 
         {showForm && (
           <div className="modal-overlay" onClick={() => setShowForm(false)}>

@@ -1583,6 +1583,210 @@ select {
     margin-top: var(--spacing-sm);
 }
 
+/* ---- Prompts panel extensions ---- */
+.modal-overlay--lg {
+    padding: var(--spacing-lg);
+}
+
+.modal--lg {
+    width: min(1440px, 92vw);
+    height: min(88vh, 800px);
+    max-height: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-body--lg {
+    padding: var(--spacing-lg);
+    flex: 1;
+    overflow-y: auto;
+}
+
+.modal-banner-actions {
+    display: flex;
+    gap: var(--spacing-sm);
+    flex-shrink: 0;
+}
+
+.modal-title {
+    font-size: 32px;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.03em;
+    color: var(--color-ink);
+    margin: 0 0 var(--spacing-xs);
+}
+
+.modal-header-row {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--spacing-md);
+    flex-wrap: wrap;
+    margin-bottom: var(--spacing-lg);
+}
+
+.modal-header-row .modal-title {
+    margin: 0 0 var(--spacing-xxs);
+}
+
+.modal-header-row .modal-subtitle {
+    margin: 0;
+}
+
+.modal-subtitle {
+    font-size: 14px;
+    color: var(--color-body);
+    margin: 0 0 var(--spacing-lg);
+}
+
+.prompt-template {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--color-body);
+    background: var(--color-surface-lowest);
+    border: var(--border-thin);
+    padding: var(--spacing-md);
+    overflow-wrap: anywhere;
+    max-height: 120px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+}
+
+.prompt-template-input {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.5;
+    min-height: 160px;
+}
+
+.prompt-preview {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--color-body);
+    background: var(--color-surface-lowest);
+    border: var(--border-thin);
+    padding: var(--spacing-md);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    margin-top: var(--spacing-sm);
+}
+
+.prompt-preview-note {
+    font-size: 12px;
+    color: var(--color-muted);
+    margin-top: var(--spacing-sm);
+}
+
+/* Prompt card: toggle pinned right in header */
+.prompt-card-header {
+    justify-content: space-between;
+    align-items: center;
+}
+
+.prompt-card-heading {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.prompt-card-badges {
+    display: flex;
+    gap: var(--spacing-sm);
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.prompt-card-toggle {
+    margin-left: auto;
+    min-width: 170px;
+}
+
+.prompt-card-actions {
+    display: flex;
+    gap: var(--spacing-sm);
+}
+
+.prompt-card--readonly {
+    background: var(--color-surface-lowest);
+    opacity: 0.72;
+}
+
+.prompt-card--readonly .task-card-footer {
+    border-top-color: rgba(0, 0, 0, 0.25);
+}
+
+/* Compact prompt card */
+.task-card.prompt-card {
+    padding: 0;
+}
+
+.task-card-header.prompt-card-header {
+    padding: var(--spacing-sm) var(--spacing-md);
+}
+
+.prompt-card-heading {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.prompt-card-badges {
+    display: flex;
+    gap: var(--spacing-sm);
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.prompt-card-toggle {
+    margin-left: auto;
+}
+
+.task-card-body.prompt-card-body {
+    padding: var(--spacing-md) var(--spacing-lg);
+}
+
+.prompt-template {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--color-body);
+    background: var(--color-surface-lowest);
+    border: var(--border-thin);
+    padding: var(--spacing-md);
+    overflow-wrap: anywhere;
+    max-height: 120px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+}
+
+.task-card-footer {
+    justify-content: space-between;
+    align-items: center;
+}
+
+.prompt-card-footer-left {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+/* Compact toggle switch within prompt card header */
+.prompt-card-toggle .toggle-switch {
+    border: var(--border-thin);
+    box-shadow: none;
+}
+
+.prompt-card-toggle .toggle-switch-option {
+    height: 30px;
+    min-width: 56px;
+    padding: 0 var(--spacing-sm);
+    font-size: 11px;
+}
+
 /* ---- Toasts (react-toastify, brutalist skin) ---- */
 .Toastify__toast-container--top-right {
     top: calc(64px + var(--spacing-md)) !important;
