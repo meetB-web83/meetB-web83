@@ -533,6 +533,10 @@ select {
     padding: 0 20px;
 }
 
+.btn--with-arrow > span.btn-label {
+    padding-right: 8px;
+}
+
 .btn-primary {
     background: var(--color-structural);
     color: #ffffff;

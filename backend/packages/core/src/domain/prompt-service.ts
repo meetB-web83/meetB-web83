@@ -51,6 +51,10 @@ export class PromptService {
   list(opts: { scope?: 'global' | 'project'; projectId?: string; category?: string; enabled?: boolean; includeBuiltin?: boolean; resolved?: boolean }) {
     if (opts.resolved && opts.projectId) {
       const rows = this.db.raw.prepare('SELECT * FROM prompts WHERE project_id = ? OR project_id IS NULL').all(opts.projectId) as any[];
+      const globalNames = new Set<string>();
+      for (const r of rows) {
+        if (!r.project_id) globalNames.add(r.name);
+      }
       const byName = new Map<string, any>();
       for (const r of rows) {
         if (opts.category && r.category !== opts.category) continue;
@@ -62,7 +66,13 @@ export class PromptService {
       const result: any[] = [];
       for (const [, r] of byName) {
         if (!r.enabled) continue;
-        result.push(this.rowToPrompt(r));
+        const prompt: any = this.rowToPrompt(r);
+        if (r.project_id) {
+          prompt.shadowsGlobal = globalNames.has(r.name);
+        } else {
+          prompt.inherited = true;
+        }
+        result.push(prompt);
       }
       return result;
     }
