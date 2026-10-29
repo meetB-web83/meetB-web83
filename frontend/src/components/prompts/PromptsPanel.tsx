@@ -5,6 +5,7 @@ import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
 import { Spinner } from '../ui/Spinner';
 import { PromptCard } from './PromptCard';
+import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { PromptFormDialog } from './PromptFormDialog';
 import { PromptPreviewDialog } from './PromptPreviewDialog';
 import type { Prompt, PromptFormValues, PromptView } from './types';
@@ -68,6 +69,7 @@ export const PromptsPanel = forwardRef<PromptsPanelHandle, PromptsPanelProps>(fu
   const [submitting, setSubmitting] = useState(false);
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const [busyIds, setBusyIds] = useState<string[]>([]);
+  const [deleteTarget, setDeleteTarget] = useState<Prompt | null>(null);
 
   const load = useCallback(
     async (showSpinner = true) => {
@@ -161,15 +163,20 @@ export const PromptsPanel = forwardRef<PromptsPanelHandle, PromptsPanelProps>(fu
   };
 
   const remove = async (prompt: Prompt) => {
-    if (!window.confirm(`Delete prompt "${prompt.name}"?`)) return;
-    markBusy(prompt.id, true);
+    setDeleteTarget(prompt);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    markBusy(deleteTarget.id, true);
     try {
-      await api.delete(`/prompts/${prompt.id}`);
+      await api.delete(`/prompts/${deleteTarget.id}`);
       await load(false);
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
-      markBusy(prompt.id, false);
+      setDeleteTarget(null);
+      markBusy(deleteTarget.id, false);
     }
   };
 
@@ -247,6 +254,13 @@ export const PromptsPanel = forwardRef<PromptsPanelHandle, PromptsPanelProps>(fu
         loading={preview?.loading ?? false}
         error={preview?.error ?? null}
         onClose={() => setPreview(null)}
+      />
+
+      <DeleteConfirmDialog
+        promptName={deleteTarget?.name ?? ''}
+        onConfirm={confirmDelete}
+        onClose={() => setDeleteTarget(null)}
+        submitting={busyIds.includes(deleteTarget?.id ?? '')}
       />
     </>
   );
