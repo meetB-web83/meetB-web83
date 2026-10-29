@@ -4,7 +4,6 @@ import { tasks } from './tasks.js';
 export const checkpoints = sqliteTable('checkpoints', {
   id: text('id').primaryKey(),
   taskId: text('task_id').notNull().references(() => tasks.id),
-  taskVersion: integer('task_version').notNull(),
   progressSummary: text('progress_summary').notNull(),
   completedWork: text('completed_work'),
   currentFindings: text('current_findings'),

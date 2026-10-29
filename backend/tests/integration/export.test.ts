@@ -26,28 +26,25 @@ describe('Export', () => {
 
   it('produces valid JSON handoff', async () => {
     const task = await tasks.createTask({ projectId: 'p1', title: 'Test task', objective: 'Test objective' });
-    await tasks.claimTask(task.id, 'agent-1', 1);
+    await tasks.claimTask(task.id, 'agent-1');
     await checkpoints.createCheckpoint({
       taskId: task.id,
       agentId: 'agent-1',
       progressSummary: 'Done with phase 1',
-      expectedVersion: 2,
     });
 
     const handoff = await jsonExport.exportTask(task.id);
-    expect(handoff.format_version).toBe(1);
     expect(handoff.task.title).toBe('Test task');
     expect(handoff.checkpoint).not.toBeNull();
   });
 
   it('produces valid Markdown handoff', async () => {
     const task = await tasks.createTask({ projectId: 'p1', title: 'Test task' });
-    await tasks.claimTask(task.id, 'agent-1', 1);
+    await tasks.claimTask(task.id, 'agent-1');
     await checkpoints.createCheckpoint({
       taskId: task.id,
       agentId: 'agent-1',
       progressSummary: 'Done with phase 1',
-      expectedVersion: 2,
     });
 
     const markdown = await markdownExport.exportTask(task.id);

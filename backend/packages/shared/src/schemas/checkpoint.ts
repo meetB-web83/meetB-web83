@@ -10,14 +10,12 @@ export const createCheckpointSchema = z.object({
   unresolved_issues: z.string().max(10000).optional(),
   next_steps: z.string().max(5000).optional(),
   file_references: z.array(z.string().max(1024)).max(50).optional(),
-  expected_version: z.number().int().positive(),
   idempotency_key: idempotencyKeySchema,
 });
 
 export const checkpointResponseSchema = z.object({
   id: z.string(),
   task_id: z.string(),
-  task_version: z.number().int(),
   progress_summary: z.string(),
   completed_work: z.string().nullable(),
   current_findings: z.string().nullable(),

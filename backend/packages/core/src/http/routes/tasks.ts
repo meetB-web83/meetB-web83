@@ -71,7 +71,6 @@ export async function registerTaskRoutes(server: FastifyInstance) {
     return buildServices(scope.db).tasks.updateTask(
       id,
       input.agent_id,
-      input.expected_version,
       {
         title: input.title,
         objective: input.objective,
@@ -96,7 +95,6 @@ export async function registerTaskRoutes(server: FastifyInstance) {
     return buildServices(scope.db).tasks.claimTask(
       id,
       input.agent_id,
-      input.expected_version,
       { key: input.idempotency_key, input: operationInput(input) },
       input.session_id ?? null,
     );
@@ -110,7 +108,6 @@ export async function registerTaskRoutes(server: FastifyInstance) {
     return buildServices(scope.db).tasks.releaseTask(
       id,
       input.agent_id,
-      input.expected_version,
       { key: input.idempotency_key, input: operationInput(input) },
     );
   });
@@ -123,7 +120,6 @@ export async function registerTaskRoutes(server: FastifyInstance) {
     return buildServices(scope.db).tasks.transitionTask(
       id,
       input.agent_id,
-      input.expected_version,
       input.target_status,
       input.reason,
       input.resolution_note,

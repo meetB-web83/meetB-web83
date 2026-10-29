@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import { ScopeSelect } from '../projects/ScopeSelect';
+import { renderVersion } from '@/lib/version';
 
 const links = [
   { to: '/', label: 'Home', accent: 'yellow' },
@@ -42,6 +43,7 @@ export function TopNav() {
         )}
         <div className="top-nav-actions" title="Core service">
           <span className="status-dot" />
+          <span className="nav-version">{renderVersion()}</span>
         </div>
       </div>
     </nav>

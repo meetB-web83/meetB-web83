@@ -27,7 +27,6 @@ export const prompts = sqliteTable('prompts', {
   projectId: text('project_id'),
   isBuiltin: integer('is_builtin').notNull().default(0),
   enabled: integer('enabled').notNull().default(1),
-  version: integer('version').notNull().default(1),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });

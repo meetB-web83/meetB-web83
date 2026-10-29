@@ -18,16 +18,16 @@ describe('Concurrency and idempotency', () => {
 
   afterEach(() => cleanup());
 
-  it('rejects stale version updates', async () => {
+  it('updates a task without version checks', async () => {
     const task = await tasks.createTask({ projectId: 'p1', title: 'Test task' });
-    await expect(tasks.updateTask(task.id, 'agent-1', 999, { title: 'New title' }))
-      .rejects.toThrow('Expected version 999, found 1');
+    const updated = await tasks.updateTask(task.id, 'agent-1', { title: 'New title' });
+    expect(updated.title).toBe('New title');
   });
 
   it('rejects unauthorized ownership changes', async () => {
     const task = await tasks.createTask({ projectId: 'p1', title: 'Test task' });
-    await tasks.claimTask(task.id, 'agent-1', 1);
-    await expect(tasks.releaseTask(task.id, 'agent-2', 2))
+    await tasks.claimTask(task.id, 'agent-1');
+    await expect(tasks.releaseTask(task.id, 'agent-2'))
       .rejects.toThrow();
   });
 });

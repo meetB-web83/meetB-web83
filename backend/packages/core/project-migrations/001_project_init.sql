@@ -20,7 +20,6 @@ CREATE TABLE IF NOT EXISTS tasks (
   priority TEXT NOT NULL DEFAULT 'medium',
   status TEXT NOT NULL DEFAULT 'open',
   owner TEXT,
-  version INTEGER NOT NULL DEFAULT 1,
   latest_checkpoint_id TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -40,7 +39,6 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE TABLE IF NOT EXISTS checkpoints (
   id TEXT PRIMARY KEY,
   task_id TEXT NOT NULL REFERENCES tasks(id),
-  task_version INTEGER NOT NULL,
   progress_summary TEXT NOT NULL,
   completed_work TEXT,
   current_findings TEXT,

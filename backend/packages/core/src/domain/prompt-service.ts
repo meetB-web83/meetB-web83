@@ -1,7 +1,7 @@
 import { v4 as uuid } from 'uuid';
 import type { Database } from '../db/connection.js';
 import { IdempotencyService, type IdempotencyOptions } from './idempotency-service.js';
-import { NotFoundError, BuiltinPromptProtectedError, StaleVersionError } from '@workjournal/shared';
+import { NotFoundError, BuiltinPromptProtectedError } from '@workjournal/shared';
 
 export type MutationIdempotency = Pick<IdempotencyOptions, 'key' | 'input'>;
 
@@ -23,7 +23,6 @@ export interface UpdatePromptData {
   template?: string;
   args?: any[];
   enabled?: boolean;
-  expectedVersion: number;
   idempotency?: MutationIdempotency;
 }
 
@@ -44,7 +43,6 @@ export class PromptService {
       project_id: row.project_id ?? null,
       is_builtin: !!row.is_builtin,
       enabled: !!row.enabled,
-      version: row.version,
       created_at: row.created_at,
       updated_at: row.updated_at,
     };
@@ -85,8 +83,8 @@ export class PromptService {
     return this.rowToPrompt(row);
   }
 
-  async toggle(id: string, enabled: boolean, expectedVersion: number, idempotency?: MutationIdempotency) {
-    return this.update({ id, enabled, expectedVersion, idempotency });
+  async toggle(id: string, enabled: boolean, idempotency?: MutationIdempotency) {
+    return this.update({ id, enabled, idempotency });
   }
 
   async create(data: CreatePromptData) {
@@ -98,8 +96,8 @@ export class PromptService {
         const now = new Date().toISOString();
         const category = data.category || 'custom';
         this.db.raw.prepare(
-          `INSERT INTO prompts (id, name, description, category, template, arguments, project_id, is_builtin, enabled, version, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1, 1, ?, ?)`,
+          `INSERT INTO prompts (id, name, description, category, template, arguments, project_id, is_builtin, enabled, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?)`,
         ).run(id, data.name, data.description ?? null, category, data.template, JSON.stringify(data.args || []), data.projectId ?? null, now, now);
         return this.get(id);
       },
@@ -112,9 +110,6 @@ export class PromptService {
       data.idempotency && { ...data.idempotency, operation: 'prompt.update', actor: 'operator' },
       () => {
         const existing = this.get(data.id);
-        if (existing.version !== data.expectedVersion) {
-          throw new StaleVersionError(`Prompt ${data.id} version mismatch`);
-        }
         const now = new Date().toISOString();
         const fields: string[] = [];
         const params: any[] = [];
@@ -124,7 +119,6 @@ export class PromptService {
         if (data.template !== undefined) { fields.push('template = ?'); params.push(data.template); }
         if (data.args !== undefined) { fields.push('arguments = ?'); params.push(JSON.stringify(data.args)); }
         if (data.enabled !== undefined) { fields.push('enabled = ?'); params.push(data.enabled ? 1 : 0); }
-        fields.push('version = version + 1');
         fields.push('updated_at = ?');
         params.push(now);
         params.push(data.id);

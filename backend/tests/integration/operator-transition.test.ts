@@ -4,7 +4,6 @@ import { TaskService } from '@workjournal/core';
 import {
   TaskStatus,
   OwnerMismatchError,
-  StaleVersionError,
   IdempotencyConflictError,
   OPERATOR,
 } from '@workjournal/shared';
@@ -29,7 +28,7 @@ describe('Operator status override', () => {
 
   async function createInProgress(owner = 'agent-1') {
     const task = await tasks.createTask({ projectId: 'p1', title: 'Stale task' });
-    return await tasks.claimTask(task.id, owner, 1);
+    return await tasks.claimTask(task.id, owner);
   }
 
   it('operator can complete an in_progress task owned by another agent', async () => {
@@ -37,7 +36,6 @@ describe('Operator status override', () => {
     const completed = await tasks.transitionTask(
       task.id,
       OPERATOR,
-      task.version,
       TaskStatus.Completed,
       'Stale task cleared by admin',
     );
@@ -50,7 +48,6 @@ describe('Operator status override', () => {
     const cancelled = await tasks.transitionTask(
       task.id,
       OPERATOR,
-      task.version,
       TaskStatus.Cancelled,
       'No longer needed',
     );
@@ -61,7 +58,6 @@ describe('Operator status override', () => {
     const reopened = await tasks.transitionTask(
       task.id,
       OPERATOR,
-      task.version,
       TaskStatus.Open,
       'Returning to backlog',
       'Back in queue',
@@ -74,7 +70,6 @@ describe('Operator status override', () => {
     const blocked = await tasks.transitionTask(
       task.id,
       OPERATOR,
-      task.version,
       TaskStatus.Blocked,
       'Waiting on external input',
     );
@@ -83,7 +78,6 @@ describe('Operator status override', () => {
     const unblocked = await tasks.transitionTask(
       task.id,
       OPERATOR,
-      blocked.version,
       TaskStatus.Open,
       'Unblocked',
       'Resolved',
@@ -91,22 +85,21 @@ describe('Operator status override', () => {
     expect(unblocked.status).toBe(TaskStatus.Open);
   });
 
-  it('operator requires a reason for every transition', async () => {
+  it('operator requires a reason for blocking', async () => {
     const task = await createInProgress('agent-1');
     await expect(
-      tasks.transitionTask(task.id, OPERATOR, task.version, TaskStatus.Completed),
-    ).rejects.toThrow(/Operator transition requires a reason/);
+      tasks.transitionTask(task.id, OPERATOR, TaskStatus.Blocked),
+    ).rejects.toThrow(/requires a reason/);
   });
 
   it('operator bypasses current-owner enforcement', async () => {
     const task = await createInProgress('agent-1');
     await expect(
-      tasks.transitionTask(task.id, 'agent-2', task.version, TaskStatus.Completed, 'x'),
+      tasks.transitionTask(task.id, 'agent-2', TaskStatus.Completed, 'x'),
     ).rejects.toBeInstanceOf(OwnerMismatchError);
     const completed = await tasks.transitionTask(
       task.id,
       OPERATOR,
-      task.version,
       TaskStatus.Completed,
       'Admin override',
     );
@@ -118,18 +111,10 @@ describe('Operator status override', () => {
     const completed = await tasks.transitionTask(
       task.id,
       OPERATOR,
-      task.version,
       TaskStatus.Completed,
       'Clearing unclaimed stale task',
     );
     expect(completed.status).toBe(TaskStatus.Completed);
-  });
-
-  it('operator expected-version conflict returns an error', async () => {
-    const task = await createInProgress('agent-1');
-    await expect(
-      tasks.transitionTask(task.id, OPERATOR, 999, TaskStatus.Completed, 'stale version'),
-    ).rejects.toBeInstanceOf(StaleVersionError);
   });
 
   it('operator idempotent retry returns stored response without new state', async () => {
@@ -140,31 +125,26 @@ describe('Operator status override', () => {
       agent_id: OPERATOR,
       target_status: TaskStatus.Completed,
       reason: 'Admin override',
-      expected_version: task.version,
     };
     const first = await tasks.transitionTask(
       task.id,
       OPERATOR,
-      task.version,
       TaskStatus.Completed,
       'Admin override',
       undefined,
       { key, input },
     );
     expect(first.status).toBe(TaskStatus.Completed);
-    expect(first.version).toBe(3);
 
     const second = await tasks.transitionTask(
       task.id,
       OPERATOR,
-      3,
       TaskStatus.Completed,
       'Admin override',
       undefined,
       { key, input },
     );
     expect(second.status).toBe(TaskStatus.Completed);
-    expect(second.version).toBe(3);
   });
 
   it('same idempotency key with different input raises conflict', async () => {
@@ -175,12 +155,10 @@ describe('Operator status override', () => {
       agent_id: OPERATOR,
       target_status: TaskStatus.Completed,
       reason: 'one',
-      expected_version: task.version,
     };
     await tasks.transitionTask(
       task.id,
       OPERATOR,
-      task.version,
       TaskStatus.Completed,
       'one',
       undefined,
@@ -190,7 +168,6 @@ describe('Operator status override', () => {
       tasks.transitionTask(
         task.id,
         OPERATOR,
-        task.version,
         TaskStatus.Completed,
         'two',
         undefined,
@@ -205,7 +182,7 @@ describe('Operator status override', () => {
       .prepare('SELECT COUNT(*) AS n FROM events WHERE task_id = ?')
       .get(task.id) as { n: number };
 
-    await tasks.transitionTask(task.id, OPERATOR, task.version, TaskStatus.Completed, 'Admin override');
+    await tasks.transitionTask(task.id, OPERATOR, TaskStatus.Completed, 'Admin override');
 
     const row = db.raw
       .prepare(
@@ -227,9 +204,9 @@ describe('Operator status override', () => {
 
   it('terminal states cannot be reopened by operator', async () => {
     const task = await createInProgress('agent-1');
-    await tasks.transitionTask(task.id, OPERATOR, task.version, TaskStatus.Completed, 'done');
+    await tasks.transitionTask(task.id, OPERATOR, TaskStatus.Completed, 'done');
     await expect(
-      tasks.transitionTask(task.id, OPERATOR, task.version + 1, TaskStatus.Open, 'reopen'),
+      tasks.transitionTask(task.id, OPERATOR, TaskStatus.Open, 'reopen'),
     ).rejects.toThrow();
   });
 
@@ -238,14 +215,12 @@ describe('Operator status override', () => {
     const completed = await tasks.transitionTask(
       task.id,
       'agent-1',
-      task.version,
       TaskStatus.Completed,
       'finished',
     );
     expect(completed.status).toBe(TaskStatus.Completed);
     await expect(
-      tasks.transitionTask(task.id, 'agent-2', 1, TaskStatus.Open, 'x'),
+      tasks.transitionTask(task.id, 'agent-2', TaskStatus.Open, 'x'),
     ).rejects.toBeInstanceOf(OwnerMismatchError);
   });
 });
-

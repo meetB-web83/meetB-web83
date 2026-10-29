@@ -21,14 +21,12 @@ export const updateTaskSchema = z.object({
   objective: z.string().max(5000).optional(),
   acceptance_criteria: z.array(z.string().max(1000)).max(50).optional(),
   priority: z.nativeEnum(Priority).optional(),
-  expected_version: z.number().int().positive(),
   idempotency_key: idempotencyKeySchema,
 });
 
 export const claimTaskSchema = z.object({
   task_id: z.string().min(1),
   agent_id: agentIdSchema,
-  expected_version: z.number().int().positive(),
   idempotency_key: idempotencyKeySchema,
   /**
    * Agent session id forwarded from the MCP tool-call `_meta` (WS-2.5): a
@@ -42,7 +40,6 @@ export const claimTaskSchema = z.object({
 export const releaseTaskSchema = z.object({
   task_id: z.string().min(1),
   agent_id: agentIdSchema,
-  expected_version: z.number().int().positive(),
   idempotency_key: idempotencyKeySchema,
 });
 
@@ -52,7 +49,6 @@ export const transitionTaskSchema = z.object({
   target_status: z.nativeEnum(TaskStatus),
   reason: z.string().max(2000).optional(),
   resolution_note: z.string().max(2000).optional(),
-  expected_version: z.number().int().positive(),
   idempotency_key: idempotencyKeySchema,
 });
 
@@ -98,7 +94,6 @@ export const taskResponseSchema = z.object({
   priority: z.nativeEnum(Priority),
   status: z.nativeEnum(TaskStatus),
   owner: z.string().nullable(),
-  version: z.number().int(),
   latest_checkpoint_id: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),

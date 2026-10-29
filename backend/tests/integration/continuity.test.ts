@@ -27,7 +27,7 @@ describe('Continuity — Agent A to Agent B handoff', () => {
   it('Agent B can reconstruct context from Agent A records', async () => {
     // Agent A creates and works on task
     const task = await tasks.createTask({ projectId: 'p1', title: 'Implement feature X', objective: 'Build the thing' });
-    await tasks.claimTask(task.id, 'agent-a_p1', 1);
+    await tasks.claimTask(task.id, 'agent-a_p1');
 
     await checkpoints.createCheckpoint({
       taskId: task.id,
@@ -35,7 +35,6 @@ describe('Continuity — Agent A to Agent B handoff', () => {
       progressSummary: 'Completed core module',
       completedWork: 'Built the parser',
       nextSteps: 'Write tests',
-      expectedVersion: 2,
     });
 
     await decisions.createDecision({
@@ -43,10 +42,9 @@ describe('Continuity — Agent A to Agent B handoff', () => {
       agentId: 'agent-a_p1',
       statement: 'Use Fastify over Express',
       rationale: 'Better TypeScript support',
-      expectedVersion: 2,
     });
 
-    await tasks.transitionTask(task.id, 'agent-a_p1', 2, 'interrupted', 'Session ended');
+    await tasks.transitionTask(task.id, 'agent-a_p1', 'interrupted', 'Session ended');
 
     // Agent B resumes
     const context = await resume.build(task.id);

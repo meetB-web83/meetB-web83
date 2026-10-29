@@ -57,7 +57,6 @@ export async function registerPromptRoutes(server: FastifyInstance) {
       template: input.template,
       args: input.arguments,
       enabled: input.enabled,
-      expectedVersion: input.expected_version,
       idempotency: { key: input.idempotency_key, input: operationInput(input) },
     });
   });
@@ -71,7 +70,7 @@ export async function registerPromptRoutes(server: FastifyInstance) {
   server.post('/:id/toggle', { preHandler: [validateBody(togglePromptSchema)] }, async (request) => {
     const { id } = request.params as { id: string };
     const input = request.body as any;
-    return server.services.prompts.toggle(id, input.enabled, input.expected_version, { key: input.idempotency_key, input: operationInput(input) });
+    return server.services.prompts.toggle(id, input.enabled, { key: input.idempotency_key, input: operationInput(input) });
   });
 
   server.post('/:id/preview', { preHandler: [validateBody(previewPromptSchema)] }, async (request) => {

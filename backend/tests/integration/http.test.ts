@@ -113,7 +113,7 @@ describe('HTTP layer round-trip', () => {
         const c = await server.inject({
           method: 'POST',
           url: `/api/tasks/${task.id}/claim`,
-          payload: { task_id: task.id, agent_id: 'agent-a_test', expected_version: task.version, idempotency_key: key },
+          payload: { task_id: task.id, agent_id: 'agent-a_test', idempotency_key: key },
         });
         expect(c.statusCode).toBe(200);
         return c.json();
@@ -122,7 +122,7 @@ describe('HTTP layer round-trip', () => {
         const c = await server.inject({
           method: 'POST',
           url: `/api/tasks/${task.id}/transition`,
-          payload: { task_id: task.id, agent_id: 'agent-a_test', expected_version: task.version, target_status: target, idempotency_key: key, ...extra },
+          payload: { task_id: task.id, agent_id: 'agent-a_test', target_status: target, idempotency_key: key, ...extra },
         });
         expect(c.statusCode).toBe(200);
         return c.json();
@@ -182,7 +182,6 @@ describe('HTTP layer round-trip', () => {
     expect(created.statusCode).toBe(201);
     const task = created.json();
     expect(task.status).toBe('open');
-    expect(task.version).toBe(1);
     expect(task.owner).toBeNull();
 
     // list_tasks: all query params arrive as strings and must coerce cleanly.
@@ -202,12 +201,10 @@ describe('HTTP layer round-trip', () => {
       payload: {
         task_id: task.id,
         agent_id: 'agent-a_test',
-        expected_version: 1,
         idempotency_key: 'task-claim-001',
       },
     });
     expect(claimed.statusCode).toBe(200);
-    expect(claimed.json().version).toBe(2);
 
     const checkpoint = await server.inject({
       method: 'POST',
@@ -217,12 +214,10 @@ describe('HTTP layer round-trip', () => {
         agent_id: 'agent-a_test',
         progress_summary: 'Wired the HTTP round-trip',
         next_steps: 'Verify events',
-        expected_version: 2,
         idempotency_key: 'checkpoint-001',
       },
     });
     expect(checkpoint.statusCode).toBe(201);
-    expect(checkpoint.json().task_version).toBe(2);
 
     // The event history proves the records really landed, in order.
     const history = await server.inject({ method: 'GET', url: `/api/events?task_id=${task.id}` });
@@ -260,7 +255,7 @@ describe('HTTP layer round-trip', () => {
     await server.inject({
       method: 'POST',
       url: `/api/tasks/${task.id}/claim`,
-      payload: { task_id: task.id, agent_id: 'agent-a_test', expected_version: 1, idempotency_key: 'task-wire-claim-001' },
+      payload: { task_id: task.id, agent_id: 'agent-a_test', idempotency_key: 'task-wire-claim-001' },
     });
     const checkpoint = await server.inject({
       method: 'POST',
@@ -270,7 +265,6 @@ describe('HTTP layer round-trip', () => {
         agent_id: 'agent-a_test',
         progress_summary: 'Wire shape checkpoint',
         file_references: ['src/a.ts', 'src/b.ts'],
-        expected_version: 2,
         idempotency_key: 'task-wire-cp-001',
       },
     });
@@ -288,7 +282,6 @@ describe('HTTP layer round-trip', () => {
         agent_id: 'agent-a_test',
         statement: 'Wire shape decision',
         alternatives: ['Alternative A'],
-        expected_version: 2,
         idempotency_key: 'task-wire-dec-001',
       },
     });

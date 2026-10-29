@@ -131,7 +131,6 @@ export const PromptsPanel = forwardRef<PromptsPanelHandle, PromptsPanelProps>(fu
       } else if (form.prompt) {
         await api.patch(`/prompts/${form.prompt.id}`, {
           ...values,
-          expected_version: form.prompt.version,
           idempotency_key: crypto.randomUUID(),
         });
       }
@@ -150,7 +149,6 @@ export const PromptsPanel = forwardRef<PromptsPanelHandle, PromptsPanelProps>(fu
     try {
       const updated = await api.post<Prompt>(`/prompts/${prompt.id}/toggle`, {
         enabled,
-        expected_version: prompt.version,
         idempotency_key: crypto.randomUUID(),
       });
       replaceRow(updated);

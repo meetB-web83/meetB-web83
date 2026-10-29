@@ -14,7 +14,8 @@
     "lint": "pnpm -r lint && eslint scripts/",
     "typecheck": "pnpm -r typecheck && tsc -p scripts/tsconfig.json",
     "start": "pnpm --filter @workjournal/cli start",
-    "mcp": "pnpm --filter @workjournal/mcp-adapter start"
+    "mcp": "pnpm --filter @workjournal/mcp-adapter start",
+    "deploy:local": "./deploy-workjournal.sh"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

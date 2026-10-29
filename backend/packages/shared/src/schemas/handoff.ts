@@ -1,8 +1,6 @@
 import { z } from 'zod';
-import { HANDOFF_FORMAT_VERSION } from '../constants.js';
 
 export const handoffJsonSchema = z.object({
-  format_version: z.literal(HANDOFF_FORMAT_VERSION),
   exported_at: z.string(),
   task: z.object({
     id: z.string(),
@@ -13,11 +11,9 @@ export const handoffJsonSchema = z.object({
     status: z.string(),
     priority: z.string(),
     owner: z.string().nullable(),
-    version: z.number().int(),
   }),
   checkpoint: z.object({
     id: z.string(),
-    task_version: z.number().int(),
     progress_summary: z.string(),
     completed_work: z.string().nullable(),
     current_findings: z.string().nullable(),

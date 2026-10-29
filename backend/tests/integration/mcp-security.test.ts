@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { loadAdapterConfig } from '@workjournal/mcp-adapter/config';
+import { loadAdapterConfig } from '../../packages/mcp-adapter/src/config.js';
 import {
   checkRequest,
   isAllowedHost,
   isAllowedOrigin,
   isAuthorized,
-} from '@workjournal/mcp-adapter/validate-headers';
+} from '../../packages/mcp-adapter/src/validate-headers.js';
 
 /**
  * Unit tests for transport selection and DNS-rebinding / origin / token

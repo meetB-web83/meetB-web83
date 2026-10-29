@@ -37,7 +37,7 @@ describe('E2E — Full handoff flow', () => {
     });
 
     // 2. Agent A claims and works
-    await tasks.claimTask(task.id, 'agent-a_proj-1', 1);
+    await tasks.claimTask(task.id, 'agent-a_proj-1');
     await events.recordEvent({ projectId: 'proj-1', taskId: task.id, actor: 'agent-a_proj-1', eventType: 'work_started', payload: {} });
 
     // 3. Agent A records progress
@@ -48,7 +48,6 @@ describe('E2E — Full handoff flow', () => {
       completedWork: 'Set up OAuth client, callback handler',
       currentFindings: 'Google requires exact redirect URI match',
       nextSteps: 'Implement token refresh',
-      expectedVersion: 2,
     });
 
     // 4. Agent A makes a decision
@@ -57,11 +56,10 @@ describe('E2E — Full handoff flow', () => {
       agentId: 'agent-a_proj-1',
       statement: 'Use authorization code flow with PKCE',
       rationale: 'Most secure for public clients',
-      expectedVersion: 2,
     });
 
     // 5. Agent A gets interrupted
-    await tasks.transitionTask(task.id, 'agent-a_proj-1', 2, 'interrupted', 'Session token expired');
+    await tasks.transitionTask(task.id, 'agent-a_proj-1', 'interrupted', 'Session token expired');
 
     // 6. Agent B picks up
     const context = await resume.build(task.id);
@@ -71,7 +69,7 @@ describe('E2E — Full handoff flow', () => {
     expect(context).toContain('Implement token refresh');
 
     // 7. Agent B claims and continues
-    await tasks.claimTask(task.id, 'agent-b_proj-1', 3);
+    await tasks.claimTask(task.id, 'agent-b_proj-1');
     const claimed = await tasks.getTask(task.id);
     expect(claimed.owner).toBe('agent-b_proj-1');
     expect(claimed.status).toBe('in_progress');

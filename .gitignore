@@ -109,3 +109,4 @@ temp/
 !/.workjournal/**
 !/.agent-state/**
 
+backend/deploy-workjournal.sh

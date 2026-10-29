@@ -16,15 +16,12 @@ export interface CreateCheckpointData {
   unresolvedIssues?: string;
   nextSteps?: string;
   fileReferences?: string[];
-  expectedVersion: number;
   idempotency?: MutationIdempotency;
 }
 
 /**
- * Checkpoint writes keep the behaviour meetb confirmed on 2026-10-16 (decision D-004):
- * the task must exist and `expected_version` is stored as the checkpoint's task version,
- * but the write does not enforce ownership and does not bump the task version. It does
- * commit atomically with its `checkpoint_recorded` event and its idempotency record.
+ * Checkpoint writes commit atomically with their `checkpoint_recorded` event and
+ * their idempotency record. The task must exist; no versioning is enforced.
  */
 export class CheckpointService {
   private events: EventService;
@@ -48,13 +45,12 @@ export class CheckpointService {
 
         this.db.raw
           .prepare(
-            `INSERT INTO checkpoints (id, task_id, task_version, progress_summary, completed_work, current_findings, unresolved_issues, next_steps, file_references, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO checkpoints (id, task_id, progress_summary, completed_work, current_findings, unresolved_issues, next_steps, file_references, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             id,
             data.taskId,
-            data.expectedVersion,
             data.progressSummary,
             data.completedWork || null,
             data.currentFindings || null,

@@ -42,17 +42,14 @@ input straight into camelCase params (build broke), and un-awaited service calls
 serialized Promises as `{}` while rejections escaped as unhandled errors instead of 4xx
 responses. Awaiting at the route is now covered by HTTP-layer tests (spec §9.8).
 
-## D-004 — Checkpoint/decision writes do not bump the task version (2026-10-16)
+## D-004 — Checkpoint/decision writes do not bump the task version (2026-10-16) — SUPERSEDED
 
-**Decision.** `record_checkpoint`, `record_decision` and `supersede_decision` require the
-task to exist and store `expected_version` as the observed version, but they neither
-enforce ownership nor bump the task version. They do commit atomically with their
-`checkpoint_recorded`/`decision_recorded` event and their idempotency record.
-
-**Reason.** Confirmed with meetb (2026-10-16). Version bumps belong to state transitions;
-checkpoints are observational records of the version they observed. Enforcing ownership on
-them produced spurious conflicts without adding safety, because they cannot corrupt task
-state.
+**Decision.** `record_checkpoint`, `record_decision` and `supersede_decision` previously
+required the task to exist and store `expected_version` as the observed version. Task
+versioning has been removed from the database, shared schemas, core domain, HTTP routes,
+MCP adapter and frontend (app version `v0.1` is now shown only as a hardcoded env-driven
+tile on the landing page and nav bar). Checkpoint/decision writes no longer reference
+`expected_version` or any task version.
 
 ## D-005 — Per-project DB path and registry split (2026-10-16)
 

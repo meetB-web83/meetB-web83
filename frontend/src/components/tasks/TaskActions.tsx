@@ -8,11 +8,10 @@ const OPERATOR = 'operator';
 interface TaskActionsProps {
   taskId: string;
   status: string;
-  version: number;
   onAction: () => void;
 }
 
-export function TaskActions({ taskId, status, version, onAction }: TaskActionsProps) {
+export function TaskActions({ taskId, status, onAction }: TaskActionsProps) {
   const [loading, setLoading] = useState(false);
 
   // Terminal states have no actions — render nothing instead of an empty bordered dock.
@@ -23,7 +22,6 @@ export function TaskActions({ taskId, status, version, onAction }: TaskActionsPr
     try {
       await api.post(`/tasks/${taskId}/${action}`, {
         task_id: taskId,
-        expected_version: version,
         idempotency_key: crypto.randomUUID(),
         agent_id: OPERATOR,
         ...body,

@@ -10,7 +10,6 @@ export interface Task {
   priority: 'low' | 'medium' | 'high';
   status: 'open' | 'in_progress' | 'blocked' | 'interrupted' | 'completed' | 'cancelled';
   owner: string | null;
-  version: number;
   latest_checkpoint_id: string | null;
   created_at: string;
   updated_at: string;

@@ -21,7 +21,6 @@ export async function registerCheckpointRoutes(server: FastifyInstance) {
       unresolvedIssues: input.unresolved_issues,
       nextSteps: input.next_steps,
       fileReferences: input.file_references,
-      expectedVersion: input.expected_version,
       idempotency: { key: input.idempotency_key, input: operationInput(input) },
     });
     return reply.status(201).send(checkpoint);

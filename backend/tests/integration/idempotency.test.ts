@@ -39,7 +39,6 @@ describe('Idempotent replay and conflict', () => {
     const replay = await createWithKey('key-abc-123');
 
     expect(replay.id).toBe(first.id);
-    expect(replay.version).toBe(1);
 
     const taskCount = db.raw.prepare('SELECT COUNT(*) AS n FROM tasks').get() as any;
     expect(taskCount.n).toBe(1);
@@ -69,7 +68,7 @@ describe('Idempotent replay and conflict', () => {
 
     // Transition fails: the task is unclaimed (owner mismatch) — nothing should persist.
     await expect(
-      tasks.transitionTask(task.id, 'agent-a_p1', 1, 'completed', undefined, undefined, {
+      tasks.transitionTask(task.id, 'agent-a_p1', 'completed', undefined, undefined, {
         key: 'key-rejected-1',
         input: { task_id: task.id, target_status: 'completed' },
       }),
@@ -79,11 +78,11 @@ describe('Idempotent replay and conflict', () => {
     expect(record).toBeUndefined();
 
     // Retrying the same key after fixing the input must succeed, not 409.
-    await tasks.claimTask(task.id, 'agent-a_p1', 1, {
+    await tasks.claimTask(task.id, 'agent-a_p1', {
       key: 'key-claim-1',
-      input: { task_id: task.id, agent_id: 'agent-a_p1', expected_version: 1 },
+      input: { task_id: task.id, agent_id: 'agent-a_p1' },
     });
-    const done = await tasks.transitionTask(task.id, 'agent-a_p1', 2, 'completed', undefined, undefined, {
+    const done = await tasks.transitionTask(task.id, 'agent-a_p1', 'completed', undefined, undefined, {
       key: 'key-rejected-1',
       input: { task_id: task.id, target_status: 'completed' },
     });
@@ -93,23 +92,22 @@ describe('Idempotent replay and conflict', () => {
   it('two competing claims produce exactly one owner', async () => {
     const task = await createWithKey('key-race-1');
 
-    await tasks.claimTask(task.id, 'agent-a_p1', 1, {
+    await tasks.claimTask(task.id, 'agent-a_p1', {
       key: 'key-claim-a',
-      input: { task_id: task.id, agent_id: 'agent-a_p1', expected_version: 1 },
+      input: { task_id: task.id, agent_id: 'agent-a_p1' },
     });
 
     // Agent B's claim loses cleanly: in_progress is not claimable again, so the
     // transition check rejects it before any state change — no owner flip, one event.
     await expect(
-      tasks.claimTask(task.id, 'agent-b_p1', 1, {
+      tasks.claimTask(task.id, 'agent-b_p1', {
         key: 'key-claim-b',
-        input: { task_id: task.id, agent_id: 'agent-b_p1', expected_version: 1 },
+        input: { task_id: task.id, agent_id: 'agent-b_p1' },
       }),
     ).rejects.toThrow(/cannot claim a task in status/i);
 
     const after = tasks.getTask(task.id);
     expect(after.owner).toBe('agent-a_p1');
-    expect(after.version).toBe(2);
 
     const claimEvents = db.raw
       .prepare(`SELECT COUNT(*) AS n FROM events WHERE task_id = ? AND event_type = 'task_claimed'`)

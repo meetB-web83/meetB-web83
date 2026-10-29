@@ -16,7 +16,6 @@ export const createDecisionSchema = z.object({
   rationale: z.string().max(5000).optional(),
   alternatives: z.array(z.string().max(1000)).max(20).optional(),
   supporting_event_ids: z.array(z.string()).max(50).optional(),
-  expected_version: z.number().int().positive(),
   idempotency_key: idempotencyKeySchema,
 });
 
@@ -26,7 +25,6 @@ export const supersedeDecisionSchema = z.object({
   decision_id: z.string().min(1),
   replacement_statement: z.string().min(1).max(2000),
   replacement_rationale: z.string().max(5000).optional(),
-  expected_version: z.number().int().positive(),
   idempotency_key: idempotencyKeySchema,
 });
 

@@ -217,7 +217,6 @@ describe('Ingestion API — POST /api/ingest/events', () => {
       payload: {
         task_id: task.id,
         agent_id: AGENT,
-        expected_version: task.version,
         idempotency_key: 'ingest-claim-001',
         session_id: 'sess-1',
       },
@@ -253,7 +252,7 @@ describe('Ingestion API — POST /api/ingest/events', () => {
     await server.inject({
       method: 'POST',
       url: `/api/tasks/${t1.id}/claim`,
-      payload: { task_id: t1.id, agent_id: AGENT, expected_version: t1.version, idempotency_key: 'ingest-claim-002', session_id: 'sess-2' },
+      payload: { task_id: t1.id, agent_id: AGENT, idempotency_key: 'ingest-claim-002', session_id: 'sess-2' },
     });
 
     // Explicit scope beats the binding.
@@ -266,7 +265,7 @@ describe('Ingestion API — POST /api/ingest/events', () => {
     await server.inject({
       method: 'POST',
       url: `/api/tasks/${t1.id}/release`,
-      payload: { task_id: t1.id, agent_id: AGENT, expected_version: 2, idempotency_key: 'ingest-release-001' },
+      payload: { task_id: t1.id, agent_id: AGENT, idempotency_key: 'ingest-release-001' },
     });
     const after = await post([
       envelope({ payload: { agent_id: AGENT, session_id: 'sess-2' } }),

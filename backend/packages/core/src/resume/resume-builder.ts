@@ -33,7 +33,6 @@ export class ResumeBuilder {
     sections.push(`- **Status:** ${task.status}`);
     sections.push(`- **Priority:** ${task.priority}`);
     sections.push(`- **Owner:** ${task.owner || 'unclaimed'}`);
-    sections.push(`- **Version:** ${task.version}`);
     if (task.objective) sections.push(`- **Objective:** ${task.objective}`);
     if (task.acceptance_criteria.length > 0) {
       sections.push(`- **Acceptance Criteria:**`);

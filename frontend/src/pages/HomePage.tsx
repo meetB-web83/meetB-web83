@@ -5,6 +5,7 @@ import { Button } from '../components/ui/Button';
 import { TaskList } from '../components/tasks/TaskList';
 import { ScopeSelect } from '../components/projects/ScopeSelect';
 import { Spinner } from '../components/ui/Spinner';
+import { renderVersion } from '../lib/version';
 
 export function HomePage() {
   const [params] = useSearchParams();
@@ -16,12 +17,13 @@ export function HomePage() {
       {/* Hero */}
       <section className="hero">
         <div className="container hero-grid">
-          <div className="hero-copy">
+          <div className="hero-copy" style={{ position: 'relative' }}>
             <div className="hero-meta">
               <span className="code-tag">&lt;workjournal&gt;</span>
               <span className="code-tag code-tag-mint">[local-first]</span>
               <span className="code-tag code-tag-ghost">[no-cloud]</span>
             </div>
+            <span className="version-tile">{renderVersion()}</span>
             <h1 className="hero-title">Task Continuity for AI Agents</h1>
             <p className="hero-subtitle">
               WorkJournal preserves task progress across AI coding-agent sessions.

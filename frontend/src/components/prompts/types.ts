@@ -8,7 +8,6 @@ export interface Prompt {
   project_id: string | null;
   is_builtin: boolean;
   enabled: boolean;
-  version: number;
   created_at?: string;
   updated_at?: string;
 }

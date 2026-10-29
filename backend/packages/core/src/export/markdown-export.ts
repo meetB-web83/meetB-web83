@@ -28,7 +28,6 @@ export class MarkdownExporter {
     lines.push(`- **Status:** ${task.status}`);
     lines.push(`- **Priority:** ${task.priority}`);
     lines.push(`- **Owner:** ${task.owner || 'unclaimed'}`);
-    lines.push(`- **Version:** ${task.version}`);
     if (task.objective) lines.push(`- **Objective:** ${filterSecrets(task.objective)}`);
 
     const criteria = task.acceptance_criteria;

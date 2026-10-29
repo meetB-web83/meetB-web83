@@ -19,7 +19,7 @@ The backend is a pnpm monorepo containing four packages that implement the WorkJ
 1. **Only `packages/core` opens SQLite.** The MCP adapter and dashboard talk to core over loopback HTTP. No exceptions.
 2. **One transition function** in `core/src/domain/transitions.ts` is the only code path that mutates task status.
 3. **Events are append-only** with a per-task monotonic sequence. Never update or delete events.
-4. **Every state-changing operation** requires an idempotency key, enforces ownership and expected-version checks, and bumps the task version.
+4. **Every state-changing operation** requires an idempotency key and enforces ownership.
 5. **Shared Zod schemas** in `packages/shared` are the single definition of inputs/outputs for API, MCP adapter, and dashboard.
 6. **No authentication** (per root AGENTS.md override). Loopback binding, Zod validation, payload size limits, secret filtering on exports.
 7. **Timestamps stored in UTC.** Only the dashboard converts to local time.

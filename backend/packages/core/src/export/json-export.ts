@@ -20,7 +20,6 @@ export class JsonExporter {
     const allEvents = await events.listEvents({ taskId });
 
     const handoff = {
-      format_version: 1,
       exported_at: new Date().toISOString(),
       task: {
         id: task.id,
@@ -31,11 +30,9 @@ export class JsonExporter {
         status: task.status,
         priority: task.priority,
         owner: task.owner,
-        version: task.version,
       },
       checkpoint: checkpoint ? {
         id: checkpoint.id,
-        task_version: checkpoint.task_version,
         progress_summary: checkpoint.progress_summary,
         completed_work: checkpoint.completed_work,
         current_findings: checkpoint.current_findings,

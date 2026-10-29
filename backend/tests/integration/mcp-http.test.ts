@@ -6,8 +6,8 @@ import { rmSync } from 'node:fs';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { buildServer, type Database, type Config } from '@workjournal/core';
-import { createMcpHttpServer } from '@workjournal/mcp-adapter/http-server';
-import { loadAdapterConfig, type AdapterConfig } from '@workjournal/mcp-adapter/config';
+import { createMcpHttpServer } from '../../packages/mcp-adapter/src/http-server.js';
+import { loadAdapterConfig, type AdapterConfig } from '../../packages/mcp-adapter/src/config.js';
 import { createRegistryDb, tempProjectRoot } from '../helpers/registry-factory.js';
 
 /**
@@ -218,7 +218,6 @@ describe('MCP over Streamable HTTP', () => {
       );
       expect(task.id).toBeTruthy();
       expect(task.status).toBe('open');
-      expect(task.version).toBe(1);
 
       const fetched = await client.callTool({ name: 'get_task', arguments: { task_id: task.id } });
       const refetched = JSON.parse(

@@ -62,7 +62,6 @@ export function TaskDetailPage() {
             <div className="task-detail-badges">
               <StatusBadge status={task.status} />
               <PriorityBadge priority={task.priority} />
-              <span className="badge badge-default">v{task.version}</span>
             </div>
           </div>
           <div className="task-detail-body">
@@ -72,7 +71,7 @@ export function TaskDetailPage() {
               {task.owner && <span>Owner: {task.owner}</span>}
               <span>Updated: {formatDateTime(task.updated_at)}</span>
             </div>
-            <TaskActions taskId={task.id} status={task.status} version={task.version} onAction={loadDetails} />
+            <TaskActions taskId={task.id} status={task.status} onAction={loadDetails} />
           </div>
         </div>
 
@@ -100,7 +99,6 @@ export function TaskDetailPage() {
                 {checkpoints.map((cp) => (
                   <Card key={cp.id} variant="light" className="timeline-item">
                     <div className="timeline-header">
-                      <span className="timeline-version">v{cp.task_version}</span>
                       <span className="timeline-date">{formatDateTime(cp.created_at)}</span>
                     </div>
                     <p className="timeline-summary">{cp.progress_summary}</p>

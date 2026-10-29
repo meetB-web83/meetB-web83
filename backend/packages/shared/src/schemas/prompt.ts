@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { queryBoolean } from './query.js';
 
 export const promptSchema = z.object({
   id: z.string(),
@@ -10,7 +11,6 @@ export const promptSchema = z.object({
   project_id: z.string().nullable(),
   is_builtin: z.boolean(),
   enabled: z.boolean(),
-  version: z.number(),
   created_at: z.string(),
   updated_at: z.string(),
 });
@@ -33,7 +33,6 @@ export const updatePromptSchema = z.object({
   template: z.string().min(1).optional(),
   arguments: z.array(z.any()).optional(),
   enabled: z.boolean().optional(),
-  expected_version: z.number(),
   idempotency_key: z.string(),
 });
 
@@ -41,14 +40,13 @@ export const listPromptsQuerySchema = z.object({
   scope: z.enum(['global', 'project']).optional(),
   project_id: z.string().optional(),
   category: z.string().optional(),
-  enabled: z.boolean().optional(),
-  include_builtin: z.boolean().optional(),
-  resolved: z.boolean().optional(),
+  enabled: queryBoolean.optional(),
+  include_builtin: queryBoolean.optional(),
+  resolved: queryBoolean.optional(),
 });
 
 export const togglePromptSchema = z.object({
   enabled: z.boolean(),
-  expected_version: z.number(),
   idempotency_key: z.string(),
 });
 

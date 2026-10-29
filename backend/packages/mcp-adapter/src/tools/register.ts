@@ -107,7 +107,7 @@ export function registerTools(server: McpServer, coreUrl: string) {
 
   tool(
     'get_task',
-    'Fetch one task by id, including its current status, owner and version.',
+    'Fetch one task by id, including its current status and owner.',
     { task_id: z.string().min(1) },
     (args) => callCore(coreUrl, 'GET', `/api/tasks/${args.task_id}`),
   );
@@ -121,7 +121,7 @@ export function registerTools(server: McpServer, coreUrl: string) {
 
   tool(
     'update_task',
-    'Update the title, objective, priority or acceptance criteria of a task. Requires the current owner agent_id, the expected_version from your last read, and an idempotency_key.',
+    'Update the title, objective, priority or acceptance criteria of a task. Requires the current owner agent_id and an idempotency_key.',
     { task_id: z.string().min(1), ...updateTaskSchema.shape },
     (args) => callCore(coreUrl, 'PATCH', `/api/tasks/${args.task_id}`, args),
   );
@@ -130,7 +130,7 @@ export function registerTools(server: McpServer, coreUrl: string) {
 
   tool(
     'claim_task',
-    'Claim an open task (or recover an interrupted one, which reassigns ownership to you). Bumps the task version. When your client attaches a session id in the tool-call _meta, the claim also binds session to task for event correlation.',
+    'Claim an open task (or recover an interrupted one, which reassigns ownership to you). When your client attaches a session id in the tool-call _meta, the claim also binds session to task for event correlation.',
     claimTaskSchema.shape,
     (args, extra) => {
       // WS-2.5: forward the agent session id (OpenCode `_meta`) so Core can
@@ -197,7 +197,7 @@ export function registerTools(server: McpServer, coreUrl: string) {
 
   tool(
     'record_checkpoint',
-    'Record a progress checkpoint on a task: what is done, findings, unresolved issues and next steps. Include the task version you last read in expected_version.',
+    'Record a progress checkpoint on a task: what is done, findings, unresolved issues and next steps.',
     createCheckpointSchema.shape,
     (args) => callCore(coreUrl, 'POST', '/api/checkpoints', args),
   );

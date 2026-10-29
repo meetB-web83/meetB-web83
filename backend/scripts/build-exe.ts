@@ -101,6 +101,15 @@ async function main(): Promise<void> {
   log('pnpm build (embed codegen + tsc) …');
   sh('pnpm build', backendRoot);
 
+  // tsc infers rootDir as `packages/` (common parent of core/src and shared/src),
+  // so output lands at dist/core/src/ instead of dist/. Create dist/index.js as a
+  // re-export so @workjournal/core resolves correctly at bundle time.
+  const distIndex = join(backendRoot, 'packages/core/dist/index.js');
+  const distCoreSrcIndex = join(backendRoot, 'packages/core/dist/core/src/index.js');
+  if (!existsSync(distIndex) && existsSync(distCoreSrcIndex)) {
+    writeFileSync(distIndex, "export * from './core/src/index.js';\n");
+  }
+
   // ── 2. Clean dist-bin (a locked exe means a service is still running) ──
   try {
     rmSync(distBin, { recursive: true, force: true });

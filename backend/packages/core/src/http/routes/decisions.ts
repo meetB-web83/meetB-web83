@@ -22,7 +22,6 @@ export async function registerDecisionRoutes(server: FastifyInstance) {
       rationale: input.rationale,
       alternatives: input.alternatives,
       supportingEventIds: input.supporting_event_ids,
-      expectedVersion: input.expected_version,
       idempotency: { key: input.idempotency_key, input: operationInput(input) },
     });
     return reply.status(201).send(decision);
@@ -47,7 +46,6 @@ export async function registerDecisionRoutes(server: FastifyInstance) {
       agentId: input.agent_id,
       replacementStatement: input.replacement_statement,
       replacementRationale: input.replacement_rationale,
-      expectedVersion: input.expected_version,
       idempotency: { key: input.idempotency_key, input: operationInput(input) },
     });
     return reply.status(201).send(decision);

@@ -21,28 +21,28 @@ describe('Task transitions', () => {
 
   it('allows open -> in_progress', async () => {
     const task = await tasks.createTask({ projectId: 'p1', title: 'Test task' });
-    const claimed = await tasks.claimTask(task.id, 'agent-1', 1);
+    const claimed = await tasks.claimTask(task.id, 'agent-1');
     expect(claimed.status).toBe(TaskStatus.InProgress);
   });
 
   it('allows in_progress -> blocked', async () => {
     const task = await tasks.createTask({ projectId: 'p1', title: 'Test task' });
-    await tasks.claimTask(task.id, 'agent-1', 1);
-    const blocked = await tasks.transitionTask(task.id, 'agent-1', 2, TaskStatus.Blocked, 'Waiting on dependency');
+    await tasks.claimTask(task.id, 'agent-1');
+    const blocked = await tasks.transitionTask(task.id, 'agent-1', TaskStatus.Blocked, 'Waiting on dependency');
     expect(blocked.status).toBe(TaskStatus.Blocked);
   });
 
   it('rejects open -> completed', async () => {
     const task = await tasks.createTask({ projectId: 'p1', title: 'Test task' });
-    await expect(tasks.transitionTask(task.id, 'agent-1', 1, TaskStatus.Completed))
+    await expect(tasks.transitionTask(task.id, 'agent-1', TaskStatus.Completed))
       .rejects.toThrow();
   });
 
   it('rejects completed -> in_progress', async () => {
     const task = await tasks.createTask({ projectId: 'p1', title: 'Test task' });
-    await tasks.claimTask(task.id, 'agent-1', 1);
-    await tasks.transitionTask(task.id, 'agent-1', 2, TaskStatus.Completed);
-    await expect(tasks.transitionTask(task.id, 'agent-1', 3, TaskStatus.InProgress))
+    await tasks.claimTask(task.id, 'agent-1');
+    await tasks.transitionTask(task.id, 'agent-1', TaskStatus.Completed);
+    await expect(tasks.transitionTask(task.id, 'agent-1', TaskStatus.InProgress))
       .rejects.toThrow();
   });
 });

@@ -64,7 +64,6 @@ export function PromptCard({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="prompt-card-footer-left">
-          <span className="task-card-meta">v{prompt.version}</span>
           <span className="task-card-meta">{prompt.category}</span>
           <div className="prompt-card-actions">
             <Button
@@ -74,15 +73,6 @@ export function PromptCard({
             >
               Preview
             </Button>
-            {!readOnly && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onEdit(prompt)}
-              >
-                Edit
-              </Button>
-            )}
             {!readOnly && !prompt.is_builtin && (
               <Button
                 variant="outline"

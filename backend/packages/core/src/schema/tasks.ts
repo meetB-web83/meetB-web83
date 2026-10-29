@@ -10,7 +10,6 @@ export const tasks = sqliteTable('tasks', {
   priority: text('priority').notNull().default('medium'),
   status: text('status').notNull().default('open'),
   owner: text('owner'),
-  version: integer('version').notNull().default(1),
   latestCheckpointId: text('latest_checkpoint_id'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),

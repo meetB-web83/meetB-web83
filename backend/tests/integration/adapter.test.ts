@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildQueryString } from '@workjournal/mcp-adapter/query';
+import { buildQueryString } from '../../packages/mcp-adapter/src/tools/query.js';
 
 /**
  * Spec §9.9: the adapter must omit absent filters from forwarded GET query strings —

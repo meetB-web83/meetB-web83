@@ -14,7 +14,6 @@ export interface CreateDecisionData {
   rationale?: string;
   alternatives?: string[];
   supportingEventIds?: string[];
-  expectedVersion: number;
   idempotency?: MutationIdempotency;
 }
 
@@ -24,7 +23,6 @@ export interface SupersedeDecisionData {
   agentId: string;
   replacementStatement: string;
   replacementRationale?: string;
-  expectedVersion: number;
   idempotency?: MutationIdempotency;
 }
 

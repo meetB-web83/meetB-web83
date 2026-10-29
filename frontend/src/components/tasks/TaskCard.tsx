@@ -21,7 +21,6 @@ export function TaskCard({ task }: TaskCardProps) {
         {task.objective && <p className="task-card-objective">{task.objective}</p>}
       </div>
       <div className="task-card-footer">
-        <span className="task-card-meta">v{task.version}</span>
         {task.owner && <span className="task-card-meta">{task.owner}</span>}
         <span className="task-card-meta">{formatRelative(task.updated_at)}</span>
       </div>

@@ -9,7 +9,6 @@ import {
   TaskStatus,
   ValidationError,
   NotFoundError,
-  StaleVersionError,
   OwnerMismatchError,
   TaskClaimedError,
   InvalidTransitionError,
@@ -67,8 +66,8 @@ export class TaskService {
       () => {
         this.db.raw
           .prepare(
-            `INSERT INTO tasks (id, project_id, title, objective, acceptance_criteria, priority, status, owner, version, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 1, ?, ?)`,
+            `INSERT INTO tasks (id, project_id, title, objective, acceptance_criteria, priority, status, owner, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
           )
           .run(
             id,
@@ -114,7 +113,6 @@ export class TaskService {
   async updateTask(
     taskId: string,
     agentId: string,
-    expectedVersion: number,
     updates: TaskUpdateData,
     idempotency?: MutationIdempotency,
   ) {
@@ -123,15 +121,12 @@ export class TaskService {
       idempotency && { ...idempotency, operation: 'task.update', actor: agentId },
       () => {
         const task = this.getTask(taskId);
-        if (task.version !== expectedVersion) {
-          throw new StaleVersionError(`Expected version ${expectedVersion}, found ${task.version}. Re-read the task and retry.`);
-        }
         if (task.owner && task.owner !== agentId) {
           throw new OwnerMismatchError(`Task is owned by ${task.owner}; only the current owner can update it.`);
         }
 
         const now = new Date().toISOString();
-        const sets: string[] = ['version = version + 1', 'updated_at = ?'];
+        const sets: string[] = ['updated_at = ?'];
         const params: any[] = [now];
         const changed: string[] = [];
         if (updates.title !== undefined) { sets.push('title = ?'); params.push(updates.title); changed.push('title'); }
@@ -143,9 +138,9 @@ export class TaskService {
           changed.push('acceptance_criteria');
         }
 
-        params.push(taskId, expectedVersion);
+        params.push(taskId);
         this.db.raw
-          .prepare(`UPDATE tasks SET ${sets.join(', ')} WHERE id = ? AND version = ?`)
+          .prepare(`UPDATE tasks SET ${sets.join(', ')} WHERE id = ?`)
           .run(...params);
 
         this.events.recordEvent({
@@ -173,7 +168,6 @@ export class TaskService {
   async claimTask(
     taskId: string,
     agentId: string,
-    expectedVersion: number,
     idempotency?: MutationIdempotency,
     sessionId?: string | null,
   ) {
@@ -187,9 +181,6 @@ export class TaskService {
             `Cannot claim a task in status "${task.status}". Only an open or interrupted task can be claimed.`,
           );
         }
-        if (task.version !== expectedVersion) {
-          throw new StaleVersionError(`Expected version ${expectedVersion}, found ${task.version}. Re-read the task and retry.`);
-        }
 
         const recovery = task.status === TaskStatus.Interrupted;
         if (task.owner && !recovery) {
@@ -199,10 +190,10 @@ export class TaskService {
         const now = new Date().toISOString();
         this.db.raw
           .prepare(
-            `UPDATE tasks SET owner = ?, status = ?, version = version + 1, updated_at = ?
-             WHERE id = ? AND version = ?`,
+            `UPDATE tasks SET owner = ?, status = ?, updated_at = ?
+             WHERE id = ?`,
           )
-          .run(agentId, TaskStatus.InProgress, now, taskId, expectedVersion);
+          .run(agentId, TaskStatus.InProgress, now, taskId);
 
         this.events.recordEvent({
           projectId: task.project_id,
@@ -221,7 +212,7 @@ export class TaskService {
     );
   }
 
-  async releaseTask(taskId: string, agentId: string, expectedVersion: number, idempotency?: MutationIdempotency) {
+  async releaseTask(taskId: string, agentId: string, idempotency?: MutationIdempotency) {
     return this.idem.run(
       'idempotency_records',
       idempotency && { ...idempotency, operation: 'task.release', actor: agentId },
@@ -232,9 +223,6 @@ export class TaskService {
             task.owner ? `Task is owned by ${task.owner}.` : 'Task has no owner to release.',
           );
         }
-        if (task.version !== expectedVersion) {
-          throw new StaleVersionError(`Expected version ${expectedVersion}, found ${task.version}. Re-read the task and retry.`);
-        }
         if (!canTransition(task.status, TaskStatus.Open)) {
           throw new InvalidTransitionError(`Cannot release a task in status "${task.status}".`);
         }
@@ -242,10 +230,10 @@ export class TaskService {
         const now = new Date().toISOString();
         this.db.raw
           .prepare(
-            `UPDATE tasks SET owner = NULL, status = ?, version = version + 1, updated_at = ?
-             WHERE id = ? AND version = ?`,
+            `UPDATE tasks SET owner = NULL, status = ?, updated_at = ?
+             WHERE id = ?`,
           )
-          .run(TaskStatus.Open, now, taskId, expectedVersion);
+          .run(TaskStatus.Open, now, taskId);
 
         this.events.recordEvent({
           projectId: task.project_id,
@@ -266,7 +254,6 @@ export class TaskService {
   async transitionTask(
     taskId: string,
     agentId: string,
-    expectedVersion: number,
     targetStatus: string,
     reason?: string,
     resolutionNote?: string,
@@ -285,9 +272,6 @@ export class TaskService {
           throw new OwnerMismatchError(
             task.owner ? `Task is owned by ${task.owner}.` : 'Task is unclaimed; claim it before transitioning it.',
           );
-        }
-        if (task.version !== expectedVersion) {
-          throw new StaleVersionError(`Expected version ${expectedVersion}, found ${task.version}. Re-read the task and retry.`);
         }
 
         // Scope §5: cancellation, blocking and interruption require a reason; unblocking
@@ -308,8 +292,8 @@ export class TaskService {
 
         const now = new Date().toISOString();
         this.db.raw
-          .prepare('UPDATE tasks SET status = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?')
-          .run(targetStatus, now, taskId, expectedVersion);
+          .prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?')
+          .run(targetStatus, now, taskId);
 
         this.events.recordEvent({
           projectId: task.project_id,

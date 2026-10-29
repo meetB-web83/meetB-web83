@@ -259,6 +259,22 @@ select {
     border: var(--border-thin);
 }
 
+.nav-version {
+    display: flex;
+    align-items: center;
+    height: 28px;
+    margin-left: var(--spacing-md);
+    padding: 0 var(--spacing-md);
+    border: var(--border-thin);
+    background: var(--color-surface);
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    white-space: nowrap;
+}
+
 /* ---- Hero (headline-xl + graph banner + code tags) ---- */
 .hero {
     padding: var(--spacing-section) 0;
@@ -280,6 +296,10 @@ select {
     height: auto;
     display: block;
     min-width: 0;
+}
+
+.hero-copy {
+    position: relative;
 }
 
 .hero-meta {
@@ -315,6 +335,28 @@ select {
     align-items: center;
     gap: var(--spacing-md);
     flex-wrap: wrap;
+}
+
+/* App version tile on the landing page — hardcoded 0.1 from env, `v` prefixed at render. Positioned at top-right corner of hero copy, aligned with title top corner. */
+.version-tile {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 36px;
+    padding: 0 var(--spacing-md);
+    border: var(--border-thin);
+    background: var(--color-yellow);
+    color: var(--color-structural);
+    font-family: var(--font-mono);
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    position: absolute;
+    top: 0;
+    right: 0;
+    transform: rotate(-3deg);
+    transform-origin: center right;
+    white-space: nowrap;
 }
 
 /* ---- Sections ---- */
@@ -868,6 +910,7 @@ select {
     display: flex;
     gap: var(--spacing-sm);
     flex-shrink: 0;
+    flex-direction: column;
 }
 
 /* ---- Project Grid (independent boxes, fill the row) ---- */

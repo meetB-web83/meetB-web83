@@ -12,7 +12,7 @@ import {
   validateProjectsMount,
   CONTAINER_PROJECTS_ROOT,
   type PathContext,
-} from '@workjournal/core/paths';
+} from '../../packages/core/src/db/paths.js';
 import { createRegistryDb, tempProjectRoot } from '../helpers/registry-factory.js';
 
 /**
