@@ -1671,6 +1671,12 @@ select {
     margin-top: var(--spacing-sm);
 }
 
+.modal-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
 /* ---- Prompts panel extensions ---- */
 .modal-overlay--lg {
     padding: var(--spacing-lg);

@@ -81,8 +81,9 @@ export function PromptFormDialog({
           </button>
         </div>
         <form className="modal-body" onSubmit={handleSubmit}>
-          <h2 className="modal-title">{mode === 'create' ? 'New prompt' : 'Edit prompt'}</h2>
-          <p className="modal-hint">Scope: {scopeLabel}</p>
+          <h2 className="modal-title">
+          {mode === 'create' ? 'New' : 'Edit'} {scopeLabel} prompt
+        </h2>
           <Input label="Name" value={name} onChange={(event) => setName(event.target.value)} required />
           <Input
             label="Description"
