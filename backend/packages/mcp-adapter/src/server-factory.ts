@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerTools } from './tools/register.js';
-import { syncPrompts, getRegisteredNames } from './prompts/registry.js';
-import { createLogger } from '@workjournal/shared';
+import { syncPrompts } from './prompts/registry.js';
+import { createLogger, LOG_FILE } from '@workjournal/shared';
 
 const mcpLogger = createLogger({ component: 'mcp-adapter', module: 'server-factory' });
 
@@ -18,12 +18,17 @@ const mcpLogger = createLogger({ component: 'mcp-adapter', module: 'server-facto
  * templates without restarting the adapter.
  */
 export async function createMcpServer(coreUrl: string): Promise<McpServer> {
-  mcpLogger.info({ coreUrl }, 'creating MCP server');
+  mcpLogger.info({ coreUrl, logFile: LOG_FILE }, 'creating MCP server');
   const server = new McpServer({
     name: 'workjournal',
     version: '0.1.0',
   });
   registerTools(server, coreUrl);
+
+  // The `prompts` capability must be registered BEFORE connect() and BEFORE
+  // syncPrompts, because capabilities cannot be added after connect().
+  // Later registerPrompt() calls would throw if this is missing.
+  server.server.registerCapabilities({ prompts: { listChanged: true } });
 
   try {
     const registered = await syncPrompts(server, coreUrl, process.env.WORKJOURNAL_PROJECT_ID);
@@ -47,59 +52,174 @@ export async function createMcpServer(coreUrl: string): Promise<McpServer> {
 }
 
 /**
- * Opens an SSE connection to Core's /api/changes/stream and re-syncs prompts
+ * Re-sync the prompt registry from Core and notify MCP clients.
+ * Always runs in its own try/catch — errors are logged, never swallowed.
+ */
+async function resyncAndNotify(server: McpServer, coreUrl: string): Promise<void> {
+  try {
+    await syncPrompts(server, coreUrl, process.env.WORKJOURNAL_PROJECT_ID);
+    server.sendPromptListChanged();
+  } catch (err) {
+    mcpLogger.error(
+      { component: 'mcp-adapter', module: 'server-factory', error: String(err) },
+      'resyncAndNotify failed',
+    );
+  }
+}
+
+/**
+ * Opens an SSE connection to Core's /changes/stream and re-syncs prompts
  * whenever a change notification arrives. Reconnects automatically on failure.
+ *
+ * An AbortController is wired to server.server.onclose so the loop stops when
+ * the MCP server/transport closes, avoiding a leaked never-ending loop per
+ * server instance (important for HTTP transport where each session has its own
+ * McpServer).
  */
 async function subscribeToPromptChanges(server: McpServer, coreUrl: string): Promise<void> {
+  const abortController = new AbortController();
+
+  // Stop the loop when the MCP server/transport closes.
+  server.server.onclose = () => {
+    mcpLogger.info(
+      { component: 'mcp-adapter', module: 'server-factory' },
+      'MCP server closed — stopping change stream loop',
+    );
+    abortController.abort();
+  };
+
   let reconnectMs = 1000;
-  const maxReconnectMs = 30000;
+  const maxReconnectMs = 30_000;
 
-  while (true) {
+  while (!abortController.signal.aborted) {
+    let res: Response;
     try {
-      const res = await fetch(`${coreUrl}/changes/stream`, {
+      res = await fetch(`${coreUrl}/changes/stream`, {
         headers: { Accept: 'text/event-stream' },
+        signal: abortController.signal,
       });
+    } catch (err) {
+      if (abortController.signal.aborted) break;
+      mcpLogger.error(
+        { component: 'mcp-adapter', module: 'server-factory', error: String(err) },
+        'changes stream connect error — reconnecting',
+      );
+      await sleepOrAbort(reconnectMs, abortController.signal);
+      if (abortController.signal.aborted) break;
+      reconnectMs = Math.min(reconnectMs * 2, maxReconnectMs);
+      continue;
+    }
 
-      if (!res.ok || !res.body) {
-        throw new Error(`Changes stream returned ${res.status}`);
+    if (!res.ok || !res.body) {
+      try {
+        res.body?.cancel();
+      } catch {
+        // Ignore cancel errors.
       }
+      if (abortController.signal.aborted) break;
+      mcpLogger.warn(
+        { component: 'mcp-adapter', module: 'server-factory', status: res.status },
+        'changes stream returned non-OK — reconnecting',
+      );
+      await sleepOrAbort(reconnectMs, abortController.signal);
+      if (abortController.signal.aborted) break;
+      reconnectMs = Math.min(reconnectMs * 2, maxReconnectMs);
+      continue;
+    }
 
-      reconnectMs = 1000; // reset backoff on successful connection
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
+    // Successful connection: reset backoff and log.
+    reconnectMs = 1000;
+    mcpLogger.info({ component: 'mcp-adapter', module: 'server-factory' }, 'change stream connected');
 
-      while (true) {
+    // Catch up on any events missed while disconnected.
+    await resyncAndNotify(server, coreUrl);
+    if (abortController.signal.aborted) break;
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      while (!abortController.signal.aborted) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          // Reader done = core closed the stream. Treat as a disconnect.
+          mcpLogger.warn(
+            { component: 'mcp-adapter', module: 'server-factory' },
+            'change stream closed by core',
+          );
+          break;
+        }
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
         buffer = lines.pop() ?? ''; // keep incomplete line in buffer
 
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const payload = line.slice(6);
-            try {
-              const event = JSON.parse(payload);
-              if (event.type === 'prompt') {
-                await syncPrompts(server, coreUrl, process.env.WORKJOURNAL_PROJECT_ID);
-                server.sendPromptListChanged();
-              }
-            } catch {
-              // Malformed event data — skip
-            }
+          if (abortController.signal.aborted) break;
+
+          // SSE framing: ignore comments and id: lines, only process data:.
+          if (line.startsWith(':') || line.startsWith('id:')) continue;
+          if (!line.startsWith('data: ')) continue;
+
+          const payload = line.slice(6);
+          let event: any;
+          try {
+            event = JSON.parse(payload);
+          } catch {
+            // Malformed event data — skip this line.
+            continue;
           }
+
+          // Skip non-prompt events.
+          if (event.type !== 'prompt') continue;
+
+          // Scope events: if a projectId is set and it differs from the
+          // adapter's configured project, skip the resync. When no project
+          // id is configured the adapter loads only global prompts.
+          const projectId = process.env.WORKJOURNAL_PROJECT_ID;
+          if (event.projectId !== null && event.projectId !== undefined && projectId && event.projectId !== projectId) {
+            continue;
+          }
+
+          await resyncAndNotify(server, coreUrl);
+          if (abortController.signal.aborted) break;
         }
       }
-    } catch (err) {
-      // Connection error — back off and retry
-      mcpLogger.error(
-        { component: 'mcp-adapter', module: 'server-factory', error: String(err) },
-        'changes stream error — reconnecting',
-      );
-      await new Promise((resolve) => setTimeout(resolve, reconnectMs));
-      reconnectMs = Math.min(reconnectMs * 2, maxReconnectMs);
+    } finally {
+      try {
+        reader.releaseLock();
+      } catch {
+        // Ignore.
+      }
     }
+
+    // Stream ended (closed by core or error). Always back off before reconnecting.
+    if (abortController.signal.aborted) break;
+    mcpLogger.warn(
+      { component: 'mcp-adapter', module: 'server-factory' },
+      'change stream ended — reconnecting',
+    );
+    await sleepOrAbort(reconnectMs, abortController.signal);
+    if (abortController.signal.aborted) break;
+    reconnectMs = Math.min(reconnectMs * 2, maxReconnectMs);
   }
+}
+
+function sleepOrAbort(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new Error('aborted'));
+      return;
+    }
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        reject(new Error('aborted'));
+      },
+      { once: true },
+    );
+  });
 }

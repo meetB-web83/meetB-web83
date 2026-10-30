@@ -74,6 +74,13 @@ export function buildServer(
 
   server.setErrorHandler((error: any, request, reply) => {
     if (error?.name === 'WorkJournalError') {
+      // Log expected business-logic errors (validation, idempotency, not-found, etc.)
+      // so they appear in the log file instead of being silently returned to the client.
+      const log = error.statusCode >= 500 ? request.log.error.bind(request.log) : request.log.warn.bind(request.log);
+      log(
+        { err: error, code: error.code, statusCode: error.statusCode },
+        error.message,
+      );
       return reply
         .status(error.statusCode || 400)
         .send({ error: error.code, message: error.message });

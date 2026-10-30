@@ -1,5 +1,5 @@
 import pino from 'pino';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, parse } from 'node:path';
 import { mkdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -21,11 +21,12 @@ export function getLogDir(): string {
 
   // Development: walk up from this file's location to find the repo root.
   let dir = dirname(fileURLToPath(import.meta.url));
-  const fsRoot = dirname(dir);
-  while (dir !== fsRoot) {
+  const fsRoot = parse(dir).root;
+  while (true) {
     if (existsSync(join(dir, '.git')) || existsSync(join(dir, 'AGENTS.md'))) {
       return join(dir, 'logs');
     }
+    if (dir === fsRoot) break;
     dir = dirname(dir);
   }
   return join(process.cwd(), 'logs');
@@ -61,22 +62,33 @@ export function getPinoConfig(): Record<string, unknown> {
   };
 }
 
+// Lazily-initialised base logger shared by every module. All modules call
+// createLogger(bindings) which returns base.child(bindings), so all output goes
+// to the same pino.destination on LOG_FILE — one file, no duplicate file handles.
+let baseLogger: pino.Logger | null = null;
+
+function getBaseLogger(): pino.Logger {
+  if (!baseLogger) {
+    ensureLogDir();
+    baseLogger = pino(
+      {
+        level: process.env.LOG_LEVEL || 'info',
+        timestamp: pino.stdTimeFunctions.isoTime,
+      },
+      pino.destination({ dest: LOG_FILE, mkdir: true }),
+    );
+  }
+  return baseLogger;
+}
+
 /**
  * Create a standalone pino logger (for MCP adapter and CLI, which are not
  * Fastify instances). Writes to the same `LOG_FILE` as Fastify so all
- * components share one log file.
+ * components share one log file. Returns base.child(bindings) so all modules
+ * share the single underlying destination.
  */
 export function createLogger(bindings?: Record<string, unknown>): pino.Logger {
-  ensureLogDir();
-
-  const base = pino(
-    {
-      level: process.env.LOG_LEVEL || 'info',
-      timestamp: pino.stdTimeFunctions.isoTime,
-    },
-    pino.destination({ dest: LOG_FILE, mkdir: true }),
-  );
-
+  const base = getBaseLogger();
   return bindings ? base.child(bindings) : base;
 }
 

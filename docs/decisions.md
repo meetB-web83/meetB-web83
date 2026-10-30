@@ -522,7 +522,6 @@ Separately, `packages/core/scripts/write-generated.ts` now backs both embed scri
 The post-MVP plan (§1 "Existing Architecture & Behavior") cites "decision D-011" for SEA-embedded migrations/committed embed files. In `docs/decisions.md` that content is recorded as **D-012** (SEA single executable, 2026-10-19); **D-011** is the `PROJECTS_DIRECTORY`/Docker path-mapping decision. The discrepancy was carried into WS-1.2's task context but, per WS-1.2 constraints, the plan document itself was not edited; this note records it for a future plan-doc cleanup pass. All other plan decision citations (D-013..D-015 autostart/PID, D-020..D-023) match `docs/decisions.md`.
 
 ## D-029 — Prompts dashboard UI: shared panel, scope implied by host (2026-10-29)
-
 **Decision.** Reworked the prompts UI around the existing task-page card style:
 
 - **`components/prompts/PromptCard`** mirrors `components/tasks/TaskCard`: `div.task-card` root, graph-paper `task-card-header` (name + badges + toggle pinned right), `task-card-body` (description + clamped mono template), `task-card-footer` (version/category meta + Preview/Edit/Delete). Card click opens the edit dialog; controls stop propagation so ON/OFF never opens the editor.
@@ -533,4 +532,18 @@ The post-MVP plan (§1 "Existing Architecture & Behavior") cites "decision D-011
 - Templates render in a clamped mono block with `overflow-wrap: anywhere` (fixes clipped text); preview output shows in its own modal instead of an inline footer dump.
 
 **Status.** Implemented 2026-10-29; awaiting typecheck + build verification.
+
+## D-030 — Prompt change notifications: SSE fan-out + per-server registry (2026-10-30)
+
+**Decision.** Fix prompt change notifications flowing Core (SSE) → MCP adapter → MCP clients:
+
+- **SSE route (`core/src/http/routes/changes.ts`):** The handler is non-async, calls `reply.hijack()`, writes headers via `reply.raw.writeHead()`, then immediately writes `: connected\n\n`. A single `Set<ServerResponse>` holds all clients; the ChangeBus is subscribed ONCE at registration and fans out `id: <seq>\ndata: <json>\n\n` to all clients, dropping any client whose write throws. A `: heartbeat\n\n` is sent every 20s per client. `server.addHook('onClose')` ends all open SSE responses so restarts/shutdown do not hang. Replay buffer and Last-Event-ID handling removed (resync-on-connect replaces them in the adapter).
+- **Logging (`shared/src/logger.ts`):** `getLogDir()` now uses `parse(dir).root` as the filesystem root and walks up checking for `.git`/`AGENTS.md`, fixing the bug where `fsRoot = dirname(dir)` only checked `packages/shared/src` before falling back to `process.cwd()/logs`. A single lazily-initialised base pino logger is shared: every module's `createLogger(bindings)` returns `base.child(bindings)`, so all output goes to one `LOG_FILE`. Core `main.ts` and the MCP adapter log the resolved `LOG_FILE` on startup.
+- **Adapter subscription loop (`mcp-adapter/src/server-factory.ts`):** Logs on connect; runs `resyncAndNotify()` immediately after connect; treats reader `done` as a disconnect with backoff; exponential backoff capped at 30s always applied before reconnect; splits JSON.parse from sync (parse errors skip, sync errors are logged never swallowed); scopes events by `event.projectId` vs `WORKJOURNAL_PROJECT_ID`; handles SSE framing (ignores `:` comments and `id:` lines, processes only `data:`); uses an `AbortController` wired to `server.server.onclose` to stop the loop when the transport closes.
+- **MCP capability + registry (`mcp-adapter/src/server-factory.ts`, `prompts/registry.ts`):** `registerCapabilities({ prompts: { listChanged: true } })` is called before `syncPrompts` and `connect()` (capabilities can't be added after connect). `registeredPrompts` is now `WeakMap<McpServer, Map<string, RegisteredEntry>>` (per-server, not module-global). Prompt callbacks resolve the ID at execution time (`registry.get(server)?.get(p.name)?.promptId ?? p.id`). `argsSchema` is built from `p.arguments` (each `z.string().optional()`) plus `request`.
+- **Core robustness (`core/src/domain/prompt-service.ts`):** `create`/`update`/`remove` run DB work inside `idem.run()` and publish AFTER `run()` returns (post-COMMIT), so a rollback cannot emit a phantom event. The dead `if (id !== undefined && (input as any).id && ...) { // allow }` block was removed from `routes/prompts.ts` PATCH.
+
+**Reason.** Symptoms were: `workjournal.log` was 0 bytes (Core and adapter wrote to different log files), newly created prompts never appeared in Opencode (SSE handler closed the connection immediately via `reply.send()`; headers never reached `reply.raw`; replay buffer was per-client and empty/duplicated), and "Prompt X is no longer available" after delete + recreate (stale `p.id` closure in the prompt callback; capabilities missing at connect time; module-global registry broke HTTP sessions). All fixed per-phase with tests in `tests/integration/{changes-stream,logger,prompt-registry}.test.ts`.
+
+**Status.** Implemented 2026-10-30; typecheck, lint, and new tests green. Pre-existing test failures in `mcp-autostart`, `mcp-stdio`, `cli-status`, `mcp-http` (CLI dist not built) are unchanged.
 

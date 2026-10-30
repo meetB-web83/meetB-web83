@@ -46,9 +46,6 @@ export async function registerPromptRoutes(server: FastifyInstance) {
   server.patch('/:id', { preHandler: [validateBody(updatePromptSchema)] }, async (request) => {
     const { id } = request.params as { id: string };
     const input = request.body as UpdatePromptInput;
-    if (id !== undefined && (input as any).id && id !== (input as any).id) {
-      // allow
-    }
     return server.services.prompts.update({
       id,
       name: input.name,

@@ -2,6 +2,7 @@ import { v4 as uuid } from 'uuid';
 import type { Database } from '../db/connection.js';
 import { IdempotencyService, type IdempotencyOptions } from './idempotency-service.js';
 import { ChangeBus, type PromptChangeEvent } from './change-bus.js';
+import { createLogger } from '@workjournal/shared';
 import { NotFoundError, BuiltinPromptProtectedError } from '@workjournal/shared';
 
 export type MutationIdempotency = Pick<IdempotencyOptions, 'key' | 'input'>;
@@ -27,6 +28,8 @@ export interface UpdatePromptData {
   idempotency?: MutationIdempotency;
 }
 
+const promptServiceLogger = createLogger({ component: 'core', module: 'prompt-service' });
+
 export class PromptService {
   private idem: IdempotencyService;
   constructor(private db: Database, private changeBus?: ChangeBus) {
@@ -34,6 +37,10 @@ export class PromptService {
   }
 
   private publish(action: PromptChangeEvent['action'], promptId: string, projectId: string | null): void {
+    promptServiceLogger.info(
+      { component: 'core', module: 'prompt-service', action, promptId, projectId },
+      `prompt ${action}`,
+    );
     if (this.changeBus) {
       this.changeBus.publish({
         type: 'prompt',
@@ -101,7 +108,7 @@ export class PromptService {
   }
 
   async create(data: CreatePromptData) {
-    return this.idem.run(
+    const result = await this.idem.run(
       'registry_idempotency' as any,
       data.idempotency && { ...data.idempotency, operation: 'prompt.create', actor: 'operator' },
       () => {
@@ -112,14 +119,17 @@ export class PromptService {
           `INSERT INTO prompts (id, name, description, category, template, arguments, project_id, is_builtin, enabled, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?)`,
         ).run(id, data.name, data.description ?? null, category, data.template, JSON.stringify(data.args || []), data.projectId ?? null, now, now);
-        this.publish('create', id, data.projectId ?? null);
         return this.get(id);
       },
     );
+    // Publish AFTER idem.run() returns (post-COMMIT). A rollback would otherwise
+    // emit a phantom event. An extra publish on an idempotent replay is acceptable.
+    this.publish('create', result.id, data.projectId ?? null);
+    return result;
   }
 
   async update(data: UpdatePromptData) {
-    return this.idem.run(
+    const result = await this.idem.run(
       'registry_idempotency' as any,
       data.idempotency && { ...data.idempotency, operation: 'prompt.update', actor: 'operator' },
       () => {
@@ -137,17 +147,25 @@ export class PromptService {
         params.push(now);
         params.push(data.id);
         this.db.raw.prepare(`UPDATE prompts SET ${fields.join(', ')} WHERE id = ?`).run(...params);
-        const updated = this.get(data.id);
-        this.publish('update', data.id, updated.project_id ?? null);
-        return updated;
+        return this.get(data.id);
       },
     );
+    // Publish AFTER idem.run() returns (post-COMMIT).
+    this.publish('update', result.id, result.project_id ?? null);
+    return result;
   }
 
   async remove(id: string) {
     const p = this.get(id);
     if (p.is_builtin) throw new BuiltinPromptProtectedError(`Prompt ${id} is built-in and cannot be deleted`);
-    this.db.raw.prepare('DELETE FROM prompts WHERE id = ?').run(id);
+    await this.idem.run(
+      'registry_idempotency' as any,
+      undefined,
+      () => {
+        this.db.raw.prepare('DELETE FROM prompts WHERE id = ?').run(id);
+      },
+    );
+    // Publish AFTER idem.run() returns (post-COMMIT).
     this.publish('delete', id, p.project_id ?? null);
   }
 

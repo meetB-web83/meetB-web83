@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { CoreServices } from '../services.js';
 import { ChangeBus, type PromptChangeEvent } from '../../domain/change-bus.js';
+import type { ServerResponse } from 'node:http';
 
 /**
  * SSE stream of prompt change events.
@@ -13,8 +14,9 @@ import { ChangeBus, type PromptChangeEvent } from '../../domain/change-bus.js';
  *   Client connects → server holds the connection open → server sends
  *   `data:` lines for each change → client may disconnect at any time.
  *
- * Reconnection: clients should send `Last-Event-ID` with the last event id they
- * received; the server will replay missed events from its in-memory buffer.
+ * The ChangeBus is subscribed ONCE at registration time; every connected
+ * client receives every event (`id: <seq>\ndata: <json>\n\n`). A client that
+ * fails to write is dropped. A `: heartbeat\n\n` is sent every 20s per client.
  *
  * Registered directly on the main server (not via server.register with a prefix)
  * because Fastify encapsulates /api/* paths when plugins with /api/* prefixes
@@ -25,53 +27,75 @@ export function registerChangesRoutes(
   services: CoreServices,
   changeBus: ChangeBus,
 ): void {
-  // In-memory buffer of recent events for reconnection replay.
-  const eventBuffer: Array<{ id: string; event: PromptChangeEvent }> = [];
-  const MAX_BUFFER = 1000;
+  const clients = new Set<ServerResponse>();
   let seq = 0;
 
-  server.get('/changes/stream', async (request, reply) => {
-    reply.header('Content-Type', 'text/event-stream');
-    reply.header('Cache-Control', 'no-cache');
-    reply.header('Connection', 'keep-alive');
-    reply.header('X-Accel-Buffering', 'no');
-
-    const lastEventId = request.headers['last-event-id'] as string | undefined;
-    const clientId = String(++seq);
-
-    // Replay missed events from the buffer.
-    let startIndex = 0;
-    if (lastEventId) {
-      const lastIdx = eventBuffer.findIndex((e) => e.id === lastEventId);
-      if (lastIdx !== -1) startIndex = lastIdx + 1;
+  // Subscribe to the ChangeBus ONCE at registration time and fan out to every
+  // connected client. Dropping a client whose write throws keeps the fan-out
+  // resilient to dead connections.
+  changeBus.subscribe((event: PromptChangeEvent) => {
+    const line = `id: ${String(++seq)}\ndata: ${JSON.stringify(event)}\n\n`;
+    for (const client of clients) {
+      try {
+        client.write(line);
+      } catch {
+        // Client likely disconnected — remove it.
+        clients.delete(client);
+      }
     }
-    for (let i = startIndex; i < eventBuffer.length; i++) {
-      const { id, event } = eventBuffer[i];
-      reply.raw.write(`id: ${id}\ndata: ${JSON.stringify(event)}\n\n`);
-    }
+  });
 
-    const handlerId = changeBus.subscribe((event) => {
-      const id = String(++seq);
-      eventBuffer.push({ id, event });
-      if (eventBuffer.length > MAX_BUFFER) eventBuffer.shift();
-      reply.raw.write(`id: ${id}\ndata: ${JSON.stringify(event)}\n\n`);
+  server.get('/changes/stream', (request, reply) => {
+    // Hijack the raw response so we control the HTTP stream ourselves. Fastify
+    // must not call reply.send() (which would close the connection).
+    reply.hijack();
+
+    // Headers must be set via reply.raw.writeHead — reply.header() only takes
+    // effect inside send(), which we never call.
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
     });
 
-    // Heartbeat to keep the connection alive through proxies.
+    // Immediately acknowledge the connection so the client knows it's open.
+    reply.raw.write(': connected\n\n');
+
     const heartbeat = setInterval(() => {
       try {
         reply.raw.write(': heartbeat\n\n');
       } catch {
-        // Client likely disconnected
+        // Client likely disconnected — cleanup handles removal.
       }
-    }, 30000);
+    }, 20_000);
 
-    request.raw.on('close', () => {
+    const removeClient = (): void => {
       clearInterval(heartbeat);
-      changeBus.unsubscribe(handlerId);
-    });
+      clients.delete(reply.raw);
+      try {
+        reply.raw.end();
+      } catch {
+        // Already ended.
+      }
+    };
 
-    // Don't end the response — keep the SSE connection open.
-    return reply.send();
+    request.raw.on('close', removeClient);
+    request.raw.on('error', removeClient);
+
+    clients.add(reply.raw);
+  });
+
+  // End all open SSE responses on server close so `tsx watch` restarts and
+  // shutdown do not hang.
+  server.addHook('onClose', async () => {
+    for (const client of clients) {
+      try {
+        client.end();
+      } catch {
+        // Ignore — best effort.
+      }
+    }
+    clients.clear();
   });
 }

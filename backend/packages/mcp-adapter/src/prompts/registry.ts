@@ -14,22 +14,50 @@ export interface PromptRow {
 const promptsLogger = createLogger({ component: 'mcp-adapter', module: 'prompts-registry' });
 
 /**
- * Names of prompts currently registered on the McpServer.
+ * Prompts currently registered on each McpServer, keyed by server then by name.
+ * Uses a WeakMap keyed by McpServer so each server instance (e.g. each HTTP
+ * session) has its own registry — a module-global Map would be shared by every
+ * server in the process and break HTTP transport where each session has its
+ * own server.
+ *
+ * Tracks the Core promptId so we can detect when a prompt was deleted
+ * and recreated with the same name (different ID) or deleted entirely.
+ *
  * registerPrompt throws on duplicate names, so we track what's already
- * registered and only add new prompts on re-sync.
+ * registered and only add new prompts on re-sync. When a prompt's Core
+ * ID changes or the prompt disappears from Core, we remove the stale
+ * registration from the MCP server via the registeredPrompt.remove()
+ * method (which deletes from the server's internal _registeredPrompts
+ * map and sends prompts/list_changed).
  */
-const registeredNames = new Set<string>();
+type RegisteredEntry = { promptId: string; registered: ReturnType<McpServer['registerPrompt']> };
+const registry = new WeakMap<McpServer, Map<string, RegisteredEntry>>();
 
-export function getRegisteredNames(): Set<string> {
-  return registeredNames;
+function entriesFor(server: McpServer): Map<string, RegisteredEntry> {
+  let entries = registry.get(server);
+  if (!entries) {
+    entries = new Map();
+    registry.set(server, entries);
+  }
+  return entries;
+}
+
+export function getRegisteredNames(server: McpServer): Set<string> {
+  return new Set(entriesFor(server).keys());
 }
 
 /**
  * Fetch and register enabled prompts from Core.
- * Skips prompts already registered (by name) to avoid duplicate registration errors.
- * Returns the set of registered names after sync.
+ * On re-sync: registers new prompts, re-registers prompts whose Core ID
+ * changed (deleted and recreated), and removes prompts that no longer
+ * exist in Core.
  */
-export async function syncPrompts(server: McpServer, coreUrl: string, projectId?: string): Promise<Set<string>> {
+export async function syncPrompts(
+  server: McpServer,
+  coreUrl: string,
+  projectId?: string,
+): Promise<Set<string>> {
+  const entries = entriesFor(server);
   const url = projectId
     ? `${coreUrl}/api/prompts?resolved=true&project_id=${encodeURIComponent(projectId)}`
     : `${coreUrl}/api/prompts?scope=global`;
@@ -41,7 +69,7 @@ export async function syncPrompts(server: McpServer, coreUrl: string, projectId?
       { component: 'mcp-adapter', module: 'prompts-registry', url, projectId, error: String(err) },
       'failed to fetch prompts from core',
     );
-    return registeredNames;
+    return getRegisteredNames(server);
   }
 
   if (!res.ok) {
@@ -55,7 +83,7 @@ export async function syncPrompts(server: McpServer, coreUrl: string, projectId?
       },
       'core returned non-OK status for prompts list',
     );
-    return registeredNames;
+    return getRegisteredNames(server);
   }
 
   let prompts: PromptRow[];
@@ -72,37 +100,77 @@ export async function syncPrompts(server: McpServer, coreUrl: string, projectId?
       },
       'failed to parse prompts response from core',
     );
-    return registeredNames;
+    return getRegisteredNames(server);
   }
 
   let added = 0;
   let skipped = 0;
   let disabled = 0;
+  let removed = 0;
+  let reRegistered = 0;
+
+  const currentNames = new Set<string>();
 
   for (const p of prompts) {
     if (!p.enabled) {
       disabled++;
       continue;
     }
-    if (registeredNames.has(p.name)) {
-      skipped++;
-      continue;
+    currentNames.add(p.name);
+
+    const existing = entries.get(p.name);
+    if (existing) {
+      if (existing.promptId === p.id) {
+        skipped++;
+        continue;
+      }
+      // Same name, different Core ID — prompt was deleted and recreated.
+      // Remove the stale registration (old callback had the old promptId)
+      // and register fresh with the new ID.
+      existing.registered.remove();
+      entries.delete(p.name);
+      reRegistered++;
+      promptsLogger.info(
+        {
+          component: 'mcp-adapter',
+          module: 'prompts-registry',
+          promptName: p.name,
+          oldPromptId: existing.promptId,
+          newPromptId: p.id,
+          projectId,
+        },
+        'prompt re-registered (Core ID changed)',
+      );
     }
-    server.registerPrompt(p.name, {
+
+    // Build argsSchema from declared arguments plus `request`, so
+    // {{placeholders}} in the template are accepted as arguments.
+    const argProperties: Record<string, z.ZodTypeAny> = {
+      request: z.string().optional(),
+    };
+    for (const arg of p.arguments || []) {
+      if (arg && typeof arg === 'object' && arg.name) {
+        argProperties[String(arg.name)] = z.string().optional();
+      }
+    }
+
+    const registered = server.registerPrompt(p.name, {
       description: p.name,
-      argsSchema: {
-        request: z.string().optional(),
-      },
+      argsSchema: argProperties as Record<string, z.ZodTypeAny>,
     }, async (args: any) => {
+      // Resolve the prompt id at execution time so the callback is immune
+      // to stale ids after a delete + recreate with the same name.
+      const entry = entries.get(p.name);
+      const id = entry?.promptId ?? p.id;
       // re-fetch current row to get latest template
-      const r = await fetch(`${coreUrl}/api/prompts/${p.id}`);
+      const r = await fetch(`${coreUrl}/api/prompts/${id}`);
       if (!r.ok) {
         promptsLogger.warn(
           {
             component: 'mcp-adapter',
             module: 'prompts-registry',
             promptName: p.name,
-            promptId: p.id,
+            promptId: id,
             status: r.status,
           },
           'prompt no longer available at execution time',
@@ -112,7 +180,7 @@ export async function syncPrompts(server: McpServer, coreUrl: string, projectId?
       const row = (await r.json()) as PromptRow;
       if (!row.enabled) {
         promptsLogger.warn(
-          { component: 'mcp-adapter', module: 'prompts-registry', promptName: p.name, promptId: p.id },
+          { component: 'mcp-adapter', module: 'prompts-registry', promptName: p.name, promptId: id },
           'prompt is disabled at execution time',
         );
         return { messages: [{ role: 'user', content: { type: 'text', text: `Prompt "${p.name}" is disabled.` } }] };
@@ -127,8 +195,23 @@ export async function syncPrompts(server: McpServer, coreUrl: string, projectId?
       }
       return { messages: [{ role: 'user', content: { type: 'text', text } }] };
     });
-    registeredNames.add(p.name);
+
+    entries.set(p.name, { promptId: p.id, registered });
     added++;
+  }
+
+  // Remove prompts that are registered on the MCP server but no longer
+  // exist in Core (deleted prompts).
+  for (const [name, { registered }] of entries) {
+    if (!currentNames.has(name)) {
+      registered.remove();
+      entries.delete(name);
+      removed++;
+      promptsLogger.info(
+        { component: 'mcp-adapter', module: 'prompts-registry', promptName: name, projectId },
+        'prompt removed from registry',
+      );
+    }
   }
 
   promptsLogger.info(
@@ -140,10 +223,12 @@ export async function syncPrompts(server: McpServer, coreUrl: string, projectId?
       added,
       skipped,
       disabled,
-      totalRegistered: registeredNames.size,
+      removed,
+      reRegistered,
+      totalRegistered: entries.size,
     },
     'prompt sync complete',
   );
 
-  return registeredNames;
+  return getRegisteredNames(server);
 }

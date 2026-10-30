@@ -47,6 +47,18 @@ pnpm build
 pnpm mcp
 ```
 
+### Logging
+
+All components (Core, MCP adapter, CLI) write to a single `workjournal.log`.
+By default this is `<repo-root>/logs/workjournal.log`. Set
+`WORKJOURNAL_LOG_DIR` to an absolute path (e.g. in the Opencode MCP config
+`env` or alongside `pnpm dev`) to force Core and the adapter to share one file:
+
+```
+WORKJOURNAL_LOG_DIR=/absolute/path/to/logs pnpm dev
+```
+
+
 ## Environment
 
 Copy `.env.example` to `.env` and adjust:
@@ -57,6 +69,7 @@ Copy `.env.example` to `.env` and adjust:
 | `HOST` | `127.0.0.1` | Bind address (loopback only) |
 | `PORT` | `3737` | Core service port |
 | `LOG_LEVEL` | `info` | Pino log level |
+| `WORKJOURNAL_LOG_DIR` | `<repo-root>/logs` | Absolute path to a shared log file directory. Set in the Opencode MCP config `env` and the core dev script so Core and the MCP adapter write to ONE `workjournal.log`. |
 
 ## Testing
 
