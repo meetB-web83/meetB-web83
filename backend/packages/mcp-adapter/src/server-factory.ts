@@ -12,7 +12,7 @@ const mcpLogger = createLogger({ component: 'mcp-adapter', module: 'server-facto
  * the single contract).
  *
  * The MCP adapter subscribes to Core's SSE change stream at
- * /api/changes/stream. When a prompt is created, updated, deleted or toggled,
+ * /changes/stream. When a prompt is created, updated, deleted or toggled,
  * the adapter re-syncs its prompt registry and sends
  * prompts/list_changed to connected MCP clients so they pick up the new
  * templates without restarting the adapter.
@@ -56,7 +56,7 @@ async function subscribeToPromptChanges(server: McpServer, coreUrl: string): Pro
 
   while (true) {
     try {
-      const res = await fetch(`${coreUrl}/api/changes/stream`, {
+      const res = await fetch(`${coreUrl}/changes/stream`, {
         headers: { Accept: 'text/event-stream' },
       });
 

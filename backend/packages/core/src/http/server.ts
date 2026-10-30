@@ -94,9 +94,7 @@ export function buildServer(
   server.register(registerDashboardRoutes, { prefix: '/api/dashboard' });
 
   // SSE stream of prompt changes for the MCP adapter.
-  server.register(async (fastify) => {
-    registerChangesRoutes(fastify, fastify.services, changeBus);
-  }, { prefix: '/api' });
+  registerChangesRoutes(server, server.services, changeBus);
 
   // Liveness probe for container health checks: no DB access, no auth (root
   // AGENTS.md: no authentication; the route reveals nothing).

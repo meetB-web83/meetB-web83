@@ -15,6 +15,10 @@ import { ChangeBus, type PromptChangeEvent } from '../../domain/change-bus.js';
  *
  * Reconnection: clients should send `Last-Event-ID` with the last event id they
  * received; the server will replay missed events from its in-memory buffer.
+ *
+ * Registered directly on the main server (not via server.register with a prefix)
+ * because Fastify encapsulates /api/* paths when plugins with /api/* prefixes
+ * are registered, which prevents direct /api/... routes from matching.
  */
 export function registerChangesRoutes(
   server: FastifyInstance,
