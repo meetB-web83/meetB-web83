@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { loadConfig } from './config.js';
+import { getPinoConfig } from '@workjournal/shared';
 import { createDatabase } from './db/connection.js';
 import { runMigrations } from './db/migrate.js';
 import { registryMigrationsSource } from './db/migrations-source.js';
@@ -16,22 +17,12 @@ const db = createDatabase(dbPath);
 
 runMigrations(db, registryMigrationsSource());
 
-const server = buildServer(db, config);
+const server = buildServer(db, config, { logger: getPinoConfig() });
 
 try {
   await server.listen({ host: config.host, port: config.port });
-  console.log(`WorkJournal core service running at http://${config.host}:${config.port}`);
+  server.log.info({ host: config.host, port: config.port }, 'WorkJournal core service started');
 } catch (err) {
-  console.error('Failed to start WorkJournal core service:', err);
+  server.log.error({ err }, 'Failed to start WorkJournal core service');
   process.exit(1);
 }
-
-process.on('SIGINT', async () => {
-  await server.close();
-  process.exit(0);
-});
-
-process.on('SIGTERM', async () => {
-  await server.close();
-  process.exit(0);
-});

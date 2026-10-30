@@ -1,6 +1,9 @@
 import { loadConfig } from '@workjournal/core';
 import { readPidFile } from '../utils/pid-file.js';
 import { workjournalHome } from '../utils/home.js';
+import { createLogger } from '@workjournal/shared';
+
+const statusLogger = createLogger({ component: 'cli', command: 'status' });
 
 /**
  * `workjournal status` — reachability AND the current PID (monitoring aid).
@@ -39,6 +42,8 @@ export async function statusCommand(): Promise<void> {
   const pid = localPid(home);
   const alive = pid !== null && pidAlive(pid);
 
+  statusLogger.info({ url, home, pid, alive }, 'status command invoked');
+
   try {
     const response = await fetch(`${url}/api/projects`);
     if (response.ok) {
@@ -49,11 +54,14 @@ export async function statusCommand(): Promise<void> {
             ? ` (pid ${pid})`
             : ` (stale service.pid: pid ${pid} is not running)`;
       console.log(`WorkJournal core service is running at ${url}${detail}`);
+      statusLogger.info({ url, pid, alive, detail }, 'core service is running');
     } else {
       console.log('Service responded with an error.');
+      statusLogger.warn({ url, status: response.status }, 'core service responded with error');
     }
   } catch {
     console.log('WorkJournal core service is not running.');
+    statusLogger.warn({ url, pid }, 'core service is not running');
     if (pid !== null) {
       console.log(
         alive

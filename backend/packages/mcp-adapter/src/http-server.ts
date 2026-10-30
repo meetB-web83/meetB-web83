@@ -6,6 +6,9 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import type { AdapterConfig } from './config.js';
 import { checkRequest } from './validate-headers.js';
 import { createMcpServer } from './server-factory.js';
+import { createLogger } from '@workjournal/shared';
+
+const httpLogger = createLogger({ component: 'mcp-adapter', module: 'http-server' });
 
 const MAX_BODY_BYTES = 1_048_576; // matches core's 1 MiB body limit
 
@@ -120,19 +123,37 @@ export function createMcpHttpServer(config: AdapterConfig): Server {
     }
 
     if (req.method === 'POST' && isInitializeRequest(body)) {
+      httpLogger.debug(
+        { component: 'mcp-adapter', module: 'http-server', action: 'initialize' },
+        'new MCP session initializing',
+      );
       const mcp = await createMcpServer(config.coreUrl);
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (id) => {
           sessions.set(id, { transport, mcp });
+          httpLogger.info(
+            { component: 'mcp-adapter', module: 'http-server', sessionId: id },
+            'MCP session initialized',
+          );
         },
         onsessionclosed: (id) => {
           sessions.delete(id);
+          httpLogger.info(
+            { component: 'mcp-adapter', module: 'http-server', sessionId: id },
+            'MCP session closed',
+          );
         },
       });
       transport.onclose = () => {
         const id = transport.sessionId;
-        if (id) sessions.delete(id);
+        if (id) {
+          sessions.delete(id);
+          httpLogger.debug(
+            { component: 'mcp-adapter', module: 'http-server', sessionId: id },
+            'MCP transport closed',
+          );
+        }
       };
       await mcp.connect(transport);
       await transport.handleRequest(req, res, body);
@@ -163,8 +184,9 @@ export async function startHttpServer(config: AdapterConfig): Promise<Server> {
     server.once('error', reject);
     server.listen(config.httpPort, config.httpHost, () => resolve());
   });
-  console.error(
-    `WorkJournal MCP server (Streamable HTTP) listening on http://${config.httpHost}:${config.httpPort}/mcp`,
+  httpLogger.info(
+    { host: config.httpHost, port: config.httpPort, path: '/mcp' },
+    'MCP Streamable HTTP server listening',
   );
   return server;
 }

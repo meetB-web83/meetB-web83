@@ -9,6 +9,7 @@ import {
 } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { AdapterConfig } from './config.js';
+import { createLogger, child } from '@workjournal/shared';
 import { startStdioServer } from './stdio.js';
 
 /**
@@ -79,9 +80,12 @@ export function resolveSpawnTarget(env: NodeJS.ProcessEnv = process.env): SpawnT
   return null;
 }
 
-/** Append a line to stderr (stdout is reserved for the MCP stream). */
+const log = createLogger({ component: 'mcp-adapter' });
+
+/** Write a note to stderr (stdout is reserved for the MCP JSON-RPC stream). */
 function note(message: string): void {
   process.stderr.write(`[workjournal] ${message}\n`);
+  log.debug({ component: 'mcp-adapter', stream: 'stderr' }, message);
 }
 
 /**
@@ -216,6 +220,10 @@ async function ensureDashboard(
     return;
   }
 
+  log.info(
+    { component: 'mcp-adapter', action: 'replace-core', pid, coreUrl: base },
+    'core is running WITHOUT the dashboard — replacing it',
+  );
   note(
     `core is running WITHOUT the dashboard — replacing it (pid ${pid}) with one ` +
       'that serves it (a brief gap for any other attached clients).',
@@ -225,6 +233,10 @@ async function ensureDashboard(
     // Maybe a concurrent `--with-ui` adapter already swapped in a dashboard
     // core while we were waiting — then there is nothing left to note.
     if (await servesDashboard(base)) return;
+    log.warn(
+      { component: 'mcp-adapter', action: 'replace-core', pid, coreUrl: base },
+      'could not stop the running core — attaching without dashboard',
+    );
     note(`could not stop the running core (pid ${pid}) — attaching without the dashboard.`);
     noteUiMissing();
     return;
@@ -285,28 +297,69 @@ async function spawnCoreDetached(
   });
   child?.unref();
 
+  const pidInfo = child?.pid ? ` (pid ${child.pid})` : '';
   if (replacedPid !== undefined) {
+    log.info(
+      {
+        component: 'mcp-adapter',
+        action: 'spawn-replacement-core',
+        oldPid: replacedPid,
+        newPid: child?.pid,
+        logPath,
+      },
+      'replacement core spawning',
+    );
     note(
-      `replacement core spawning (old pid ${replacedPid}` +
-        `${child?.pid ? ` → pid ${child.pid}` : ''}), log: ${logPath}`,
+      `replacement core spawning (old pid ${replacedPid}${pidInfo}), log: ${logPath}`,
     );
   } else {
+    log.info(
+      {
+        component: 'mcp-adapter',
+        action: 'autostart-core',
+        coreUrl: base,
+        withUi: config.withUi,
+        pid: child?.pid,
+        logPath,
+      },
+      'autostarting core service',
+    );
     note(
       `core service is not reachable at ${base} — starting it` +
         `${config.withUi ? ' with the dashboard' : ''}` +
-        `${child?.pid ? ` (pid ${child.pid})` : ''}, log: ${logPath}`,
+        `${pidInfo}, log: ${logPath}`,
     );
   }
 
   const deadline = Date.now() + config.autostartTimeoutMs;
   while (Date.now() < deadline) {
     if (spawnError) {
+      log.error(
+        { component: 'mcp-adapter', action: 'autostart-core', error: spawnError.message },
+        'could not start core service',
+      );
       throw new Error(`Could not start the WorkJournal core service: ${spawnError.message}. ${actionable}`);
     }
     const attempt = await probe(healthUrl, 2_000);
-    if (attempt?.ok) return;
+    if (attempt?.ok) {
+      log.info(
+        { component: 'mcp-adapter', action: 'autostart-core', coreUrl: base },
+        'core service became healthy',
+      );
+      return;
+    }
     await sleep(250);
   }
+  log.error(
+    {
+      component: 'mcp-adapter',
+      action: 'autostart-core',
+      coreUrl: base,
+      timeoutMs: config.autostartTimeoutMs,
+      logPath,
+    },
+    'core service did not become healthy within timeout',
+  );
   throw new Error(
     `The auto-started WorkJournal core service did not become healthy within ` +
       `${config.autostartTimeoutMs}ms — check ${logPath}. ${actionable}`,
@@ -333,15 +386,27 @@ export async function ensureCore(config: AdapterConfig, env: NodeJS.ProcessEnv =
   if (healthy?.ok) {
     // Attach is silent no more: say WHICH core we joined and under which pid
     // (stderr only — stdout carries the MCP stream). decision D-015.
-    note(`connecting to existing core running at ${base} (pid: ${describeLocalPid(env)})`);
+    const pid = describeLocalPid(env);
+    log.info(
+      { component: 'mcp-adapter', action: 'attach-core', coreUrl: base, pid },
+      'connecting to existing core',
+    );
+    note(`connecting to existing core running at ${base} (pid: ${pid})`);
     await ensureDashboard(config, env, healthUrl);
     return;
   }
 
-  if (!config.autostart) throw new Error(actionable);
+  if (!config.autostart) {
+    log.warn({ component: 'mcp-adapter', action: 'attach-core', coreUrl: base, autostart: false }, 'core is down and autostart is disabled');
+    throw new Error(actionable);
+  }
 
   const target = resolveSpawnTarget(env);
   if (!target) {
+    log.error(
+      { component: 'mcp-adapter', action: 'autostart-core', coreUrl: base },
+      'autostart unavailable in this runtime',
+    );
     note(
       `core service is down at ${base}, but autostart is unavailable in this runtime ` +
         '(only the SEA "workjournal" executable can re-spawn itself; source runs need ' +
@@ -395,10 +460,12 @@ export function startHeartbeat(
 
   process.on('exit', cleanup);
   process.on('SIGINT', () => {
+    log.info({ component: 'mcp-adapter', pid: process.pid }, 'SIGINT received — stopping heartbeat');
     cleanup();
     process.exit(130);
   });
   process.on('SIGTERM', () => {
+    log.info({ component: 'mcp-adapter', pid: process.pid }, 'SIGTERM received — stopping heartbeat');
     cleanup();
     process.exit(143);
   });
@@ -406,6 +473,7 @@ export function startHeartbeat(
   // The MCP client owns our lifetime over stdio: when its end of the pipe
   // closes, unregister and exit so the last-one-out auto-stop can fire.
   const sayGoodbye = (): void => {
+    log.info({ component: 'mcp-adapter', pid: process.pid }, 'stdio client disconnected — stopping');
     cleanup();
     process.exit(0);
   };
@@ -419,6 +487,7 @@ export function startHeartbeat(
  * use: make sure the core is up, register the heartbeat, then serve MCP.
  */
 export async function runStdioAdapter(config: AdapterConfig): Promise<void> {
+  log.info({ component: 'mcp-adapter', action: 'start', coreUrl: config.coreUrl }, 'starting MCP adapter');
   await ensureCore(config);
   startHeartbeat(config);
   await startStdioServer(config.coreUrl);

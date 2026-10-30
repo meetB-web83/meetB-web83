@@ -37,16 +37,22 @@ export interface BuildServerOptions {
    * exactly the previous behaviour.
    */
   ui?: UiAssets | null;
+  /** Pino logger configuration object for Fastify's `logger` option. */
+  logger?: Record<string, unknown>;
 }
 
-export function buildServer(db: Database, config: Config, options: BuildServerOptions = {}) {
+export function buildServer(
+  db: Database,
+  config: Config,
+  options: BuildServerOptions = {},
+) {
   // Startup gate: PROJECTS_DIRECTORY configured but the container mount is
   // missing/unreadable → actionable failure before any request is served.
   const mountError = validateProjectsMount();
   if (mountError) throw new Error(mountError);
 
   const server = Fastify({
-    logger: { level: config.logLevel },
+    logger: options.logger,
     bodyLimit: 1_048_576,
   });
 

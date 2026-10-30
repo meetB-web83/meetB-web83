@@ -1,6 +1,9 @@
 import { loadAdapterConfig } from '@workjournal/mcp-adapter/config';
 import { runStdioAdapter } from '@workjournal/mcp-adapter/autostart';
 import { startHttpServer } from '@workjournal/mcp-adapter/http-server';
+import { createLogger } from '@workjournal/shared';
+
+const mcpLogger = createLogger({ component: 'cli', command: 'mcp' });
 
 export interface McpOptions {
   /** Run the Streamable HTTP transport instead of stdio. */
@@ -25,14 +28,27 @@ export interface McpOptions {
  * loopback HTTP.
  */
 export async function mcpCommand(options: McpOptions = {}): Promise<void> {
+  mcpLogger.info({ http: !!options.http, withUi: !!options.withUi, autostart: options.autostart }, 'mcp command invoked');
   if (options.http && !process.env.MCP_TRANSPORT) process.env.MCP_TRANSPORT = 'http';
   if (options.withUi) process.env.MCP_WITH_UI = '1';
   if (options.autostart === false) process.env.MCP_AUTOSTART = '0';
 
   const config = loadAdapterConfig();
+  mcpLogger.info(
+    {
+      transport: config.transport,
+      coreUrl: config.coreUrl,
+      autostart: config.autostart,
+      withUi: config.withUi,
+    },
+    'adapter config loaded',
+  );
+
   if (config.transport === 'http') {
+    mcpLogger.info({ httpHost: config.httpHost, httpPort: config.httpPort }, 'starting Streamable HTTP transport');
     await startHttpServer(config);
   } else {
+    mcpLogger.info({ coreUrl: config.coreUrl }, 'starting stdio transport');
     await runStdioAdapter(config);
   }
 }

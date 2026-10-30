@@ -14,8 +14,11 @@ import {
   loadUiAssetsFromDir,
   type UiAssets,
 } from '@workjournal/core';
+import { createLogger, getPinoConfig } from '@workjournal/shared';
 import { removePidFile, writePidFile } from '../utils/pid-file.js';
 import { workjournalHome } from '../utils/home.js';
+
+const startLogger = createLogger({ component: 'cli', command: 'start' });
 
 export interface StartOptions {
   /** Serve the dashboard from embedded assets on the same origin as the API. */
@@ -44,12 +47,15 @@ function openBrowser(url: string): void {
 }
 
 export async function startCommand(options: StartOptions = {}): Promise<void> {
+  startLogger.info({ withUi: !!options.withUi, uiDir: options.uiDir || null }, 'start command invoked');
   const config = loadConfig();
   const homeDir = workjournalHome();
 
+  startLogger.info({ homeDir, host: config.host, port: config.port }, 'opening registry database');
   const dbPath = resolve(homeDir, 'registry.db');
   const db = createDatabase(dbPath);
 
+  startLogger.info({ dbPath }, 'running registry migrations');
   runMigrations(db, registryMigrationsSource());
 
   let ui: UiAssets | null = null;
@@ -58,6 +64,7 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
   } else if (options.withUi || options.open) {
     ui = embeddedUiAssets();
     if (!ui) {
+      startLogger.error({ uiDir: options.uiDir, withUi: options.withUi, open: options.open }, 'no embedded dashboard assets available');
       console.error(
         'No embedded dashboard assets. Build the frontend (pnpm build in frontend/), then ' +
           'rebuild the backend (pnpm build in backend/), or pass --ui-dir <path-to-dist>.',
@@ -66,24 +73,26 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
     }
   }
 
-  const server = buildServer(db, config, { ui });
+  const server = buildServer(db, config, { ui, logger: getPinoConfig() });
 
   try {
     await server.listen({ host: config.host, port: config.port });
+    startLogger.info({ host: config.host, port: config.port, url: `http://${config.host}:${config.port}` }, 'core service listening');
   } catch (err) {
     if ((err as NodeJS.ErrnoException)?.code === 'EADDRINUSE') {
-      // Two adapters can race to autostart; the loser must not clobber the
-      // winner's PID file (writePidFile runs only after a successful listen).
+      startLogger.warn({ port: config.port }, 'port already in use — another core is probably running');
       console.error(
         `Port ${config.port} is already in use — another WorkJournal core is probably ` +
           'running. Check "workjournal status", or stop it with "workjournal stop".',
       );
       process.exit(1);
     }
+    startLogger.error({ error: String(err) }, 'failed to start core service');
     throw err;
   }
 
   writePidFile(homeDir);
+  startLogger.info({ pid: process.pid, homeDir }, 'PID file written');
   const url = `http://${config.host === '0.0.0.0' ? '127.0.0.1' : config.host}:${config.port}`;
   console.log(`WorkJournal core service running at ${url}`);
   if (ui) {
@@ -99,6 +108,7 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
     homeDir,
     config: autoStop,
     onIdle: async () => {
+      startLogger.info({ idleMs: autoStop.idleMs }, 'no MCP clients — auto-stopping core');
       console.log(
         `WorkJournal: no MCP clients for ${Math.round(autoStop.idleMs / 1000)}s — ` +
           'auto-stopping (this service was started by the MCP adapter; ' +
@@ -114,6 +124,15 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
     },
   });
 
-  process.on('SIGINT', async () => { await server.close(); process.exit(0); });
-  process.on('SIGTERM', async () => { await server.close(); process.exit(0); });
+  process.on('SIGINT', async () => {
+    startLogger.info('Received SIGINT — shutting down');
+    await server.close();
+    process.exit(0);
+  });
+
+  process.on('SIGTERM', async () => {
+    startLogger.info('Received SIGTERM — shutting down');
+    await server.close();
+    process.exit(0);
+  });
 }

@@ -16,3 +16,4 @@ export * from './types/actor.js';
 export * from './types/events.js';
 export * from './errors.js';
 export * from './constants.js';
+export * from './logger.js';
