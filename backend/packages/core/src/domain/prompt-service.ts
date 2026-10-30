@@ -1,6 +1,7 @@
 import { v4 as uuid } from 'uuid';
 import type { Database } from '../db/connection.js';
 import { IdempotencyService, type IdempotencyOptions } from './idempotency-service.js';
+import { ChangeBus, type PromptChangeEvent } from './change-bus.js';
 import { NotFoundError, BuiltinPromptProtectedError } from '@workjournal/shared';
 
 export type MutationIdempotency = Pick<IdempotencyOptions, 'key' | 'input'>;
@@ -28,8 +29,20 @@ export interface UpdatePromptData {
 
 export class PromptService {
   private idem: IdempotencyService;
-  constructor(private db: Database) {
+  constructor(private db: Database, private changeBus?: ChangeBus) {
     this.idem = new IdempotencyService(db);
+  }
+
+  private publish(action: PromptChangeEvent['action'], promptId: string, projectId: string | null): void {
+    if (this.changeBus) {
+      this.changeBus.publish({
+        type: 'prompt',
+        action,
+        promptId,
+        projectId,
+        timestamp: new Date().toISOString(),
+      });
+    }
   }
 
   private rowToPrompt(row: any) {
@@ -99,6 +112,7 @@ export class PromptService {
           `INSERT INTO prompts (id, name, description, category, template, arguments, project_id, is_builtin, enabled, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?)`,
         ).run(id, data.name, data.description ?? null, category, data.template, JSON.stringify(data.args || []), data.projectId ?? null, now, now);
+        this.publish('create', id, data.projectId ?? null);
         return this.get(id);
       },
     );
@@ -123,7 +137,9 @@ export class PromptService {
         params.push(now);
         params.push(data.id);
         this.db.raw.prepare(`UPDATE prompts SET ${fields.join(', ')} WHERE id = ?`).run(...params);
-        return this.get(data.id);
+        const updated = this.get(data.id);
+        this.publish('update', data.id, updated.project_id ?? null);
+        return updated;
       },
     );
   }
@@ -132,6 +148,7 @@ export class PromptService {
     const p = this.get(id);
     if (p.is_builtin) throw new BuiltinPromptProtectedError(`Prompt ${id} is built-in and cannot be deleted`);
     this.db.raw.prepare('DELETE FROM prompts WHERE id = ?').run(id);
+    this.publish('delete', id, p.project_id ?? null);
   }
 
   preview(id: string, args: Record<string, any> = {}) {

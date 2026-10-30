@@ -3,6 +3,7 @@ import { TaskService } from '../domain/task-service.js';
 import { ProjectService } from '../domain/project-service.js';
 import { CheckpointService } from '../domain/checkpoint-service.js';
 import { PromptService } from '../domain/prompt-service.js';
+import { ChangeBus } from '../domain/change-bus.js';
 import { DecisionService } from '../domain/decision-service.js';
 import { EventService } from '../domain/event-service.js';
 import { ResumeBuilder } from '../resume/resume-builder.js';
@@ -13,8 +14,15 @@ import type { PathContext } from '../db/paths.js';
 
 export type CoreServices = Services;
 
-/** Build a service bundle bound to one database (the registry, or one project DB). */
-export function buildServices(db: Database, pathContext: PathContext | null = null): Services {
+/**
+ * Build a service bundle bound to one database (the registry, or one project DB).
+ * @param changeBus - optional shared change bus for prompt mutation notifications
+ */
+export function buildServices(
+  db: Database,
+  pathContext: PathContext | null = null,
+  changeBus?: ChangeBus,
+): Services {
   return {
     tasks: new TaskService(db),
     projects: new ProjectService(db, pathContext),
@@ -23,7 +31,7 @@ export function buildServices(db: Database, pathContext: PathContext | null = nu
     events: new EventService(db),
     resume: new ResumeBuilder(db),
     jsonExport: new JsonExporter(db),
-    prompts: new PromptService(db),
+    prompts: new PromptService(db, changeBus),
     markdownExport: new MarkdownExporter(db),
   };
 }

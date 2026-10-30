@@ -13,10 +13,12 @@ import { registerResumeRoutes } from './routes/resume.js';
 import { registerExportRoutes } from './routes/export.js';
 import { registerPromptRoutes } from './routes/prompts.js';
 import { registerDashboardRoutes } from './routes/dashboard.js';
+import { registerChangesRoutes } from './routes/changes.js';
 import { registerUiRoutes } from './ui.js';
 import { validateProjectsMount } from '../db/paths.js';
 import { projectMigrationsSource } from '../db/migrations-source.js';
 import type { UiAssets } from '../ui/ui-assets.js';
+import { ChangeBus } from '../domain/change-bus.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -58,9 +60,12 @@ export function buildServer(
 
   const projectDbs = new ProjectDbResolver(db, projectMigrationsSource());
 
+  // Shared change bus for prompt mutation notifications (SSE → MCP adapter).
+  const changeBus = new ChangeBus();
+
   server.decorate('registryDb', db);
   server.decorate('projectDbs', projectDbs);
-  server.decorate('services', buildServices(db, config.pathContext));
+  server.decorate('services', buildServices(db, config.pathContext, changeBus));
   server.decorate('config', config);
 
   server.addHook('onClose', async () => {
@@ -87,6 +92,9 @@ export function buildServer(
   server.register(registerPromptRoutes, { prefix: '/api/prompts' });
   server.register(registerExportRoutes, { prefix: '/api/export' });
   server.register(registerDashboardRoutes, { prefix: '/api/dashboard' });
+
+  // SSE stream of prompt changes for the MCP adapter.
+  registerChangesRoutes(server, server.services, changeBus);
 
   // Liveness probe for container health checks: no DB access, no auth (root
   // AGENTS.md: no authentication; the route reveals nothing).
