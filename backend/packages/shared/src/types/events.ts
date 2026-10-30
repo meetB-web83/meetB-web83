@@ -233,6 +233,11 @@ export const eventPayloadSchemas = {
       blockers: boundedText(5000).optional(),
       next_steps: boundedText(5000).optional(),
       files_changed: z.array(boundedText(1024)).max(100).optional(),
+      duration_ms: z.number().int().nonnegative().optional(),
+      tool_call_count: z.number().int().nonnegative().optional(),
+      failed_tool_call_count: z.number().int().nonnegative().optional(),
+      input_tokens: z.number().int().nonnegative().optional(),
+      output_tokens: z.number().int().nonnegative().optional(),
     })
     .strict(),
   verification_passed: z

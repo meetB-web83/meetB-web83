@@ -201,7 +201,7 @@ describe('opencode lifecycle plugin', () => {
 
     const teardown = await plugin.setup(ctx);
     queue.push({ type: 'session.created', data: { sessionID: 'ses-1' } });
-    queue.push({ type: 'session.execution.succeeded', data: { sessionID: 'ses-1' } });
+    queue.push({ type: 'session.updated', data: { sessionID: 'ses-1', status: 'completed' } });
     await settle();
     abort.abort();
     await teardown();
@@ -212,5 +212,81 @@ describe('opencode lifecycle plugin', () => {
       'agent_session_started',
       'agent_session_ended',
     ]);
+    const ended = calls[0].events.find((e) => e.type === 'agent_session_ended');
+    expect(ended.payload.reason).toBe('completed');
+    expect(ended.payload.duration_ms).toBeGreaterThanOrEqual(0);
+    expect(ended.payload.tool_call_count).toBe(0);
+    expect(ended.payload.failed_tool_call_count).toBe(0);
+    expect(ended.payload.files_touched).toEqual([]);
+  });
+
+  it('tracks tool calls, file paths, and failures via tool.execute hooks', async () => {
+    const calls = stubCore([PROJECT]);
+    const plugin = await loadPlugin(opencodePluginSource);
+
+    const queue: Array<Record<string, any>> = [];
+    const abort = new AbortController();
+    const ctx = {
+      location: { directory: NATIVE_ROOT },
+      event: {
+        async *subscribe() {
+          while (!abort.signal.aborted) {
+            const next = queue.shift();
+            if (next) { yield next; continue; }
+            await new Promise((resolve) => setTimeout(resolve, 5));
+          }
+        },
+      },
+    };
+
+    const teardown = await plugin.setup(ctx);
+    const beforeHook = teardown['tool.execute.before'];
+    const afterHook = teardown['tool.execute.after'];
+
+    queue.push({ type: 'session.created', data: { sessionID: 'ses-tool' } });
+    await settle();
+
+    // Tool call 1: edit file
+    await beforeHook({
+      sessionID: 'ses-tool',
+      tool: 'edit',
+      args: { filePath: 'src/app.ts' },
+    }, { args: { filePath: 'src/app.ts' } });
+    await afterHook({
+      sessionID: 'ses-tool',
+      tool: 'edit',
+      args: { filePath: 'src/app.ts' },
+    }, { args: { filePath: 'src/app.ts' }, result: 'ok' });
+
+    // Tool call 2: failing command
+    await beforeHook({
+      sessionID: 'ses-tool',
+      tool: 'bash',
+      args: { command: 'npm test' },
+    }, { args: { command: 'npm test' } });
+    await afterHook({
+      sessionID: 'ses-tool',
+      tool: 'bash',
+      args: { command: 'npm test' },
+    }, { args: { command: 'npm test' }, error: new Error('exit code 1') });
+
+    queue.push({ type: 'session.updated', data: { sessionID: 'ses-tool', status: 'completed' } });
+    await settle();
+    abort.abort();
+    await teardown();
+
+    // Two batches: one for session.created, one for tool calls + session.ended (may be 2 or 3 depending on flush timing)
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    const allEvents = calls.flatMap((c) => c.events);
+    const started = allEvents.find((e) => e.type === 'agent_session_started');
+    const ended = allEvents.find((e) => e.type === 'agent_session_ended');
+    const toolCalls = allEvents.filter((e) => e.type === 'agent_tool_call');
+    expect(started).toBeDefined();
+    expect(ended).toBeDefined();
+    expect(toolCalls).toHaveLength(2);
+    expect(ended.payload.reason).toBe('completed');
+    expect(ended.payload.tool_call_count).toBe(2);
+    expect(ended.payload.failed_tool_call_count).toBe(1);
+    expect(ended.payload.files_touched).toContain('src/app.ts');
   });
 });

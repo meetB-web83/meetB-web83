@@ -35,6 +35,12 @@ export const startAgentSessionSchema = z.object({ ...sessionRequired });
 export const endAgentSessionSchema = z.object({
   ...sessionRequired,
   reason: z.enum(['completed', 'interrupted', 'failed', 'timeout']),
+  duration_ms: z.number().int().nonnegative().optional(),
+  tool_call_count: z.number().int().nonnegative().optional(),
+  failed_tool_call_count: z.number().int().nonnegative().optional(),
+  files_touched: z.array(z.string().min(1).max(1024)).max(100).optional(),
+  input_tokens: z.number().int().nonnegative().optional(),
+  output_tokens: z.number().int().nonnegative().optional(),
 });
 
 export const reportInterruptionSchema = z.object({
@@ -59,6 +65,11 @@ export const reportFulfilmentSchema = z.object({
   blockers: z.string().min(1).max(5000).optional(),
   next_steps: z.string().min(1).max(5000).optional(),
   files_changed: z.array(z.string().min(1).max(1024)).max(100).optional(),
+  duration_ms: z.number().int().nonnegative().optional(),
+  tool_call_count: z.number().int().nonnegative().optional(),
+  failed_tool_call_count: z.number().int().nonnegative().optional(),
+  input_tokens: z.number().int().nonnegative().optional(),
+  output_tokens: z.number().int().nonnegative().optional(),
 });
 
 export const reportVerificationSchema = z.object({
@@ -68,6 +79,15 @@ export const reportVerificationSchema = z.object({
   detail: z.string().min(1).max(10000).optional(),
 });
 
+export const reportToolCallSchema = z.object({
+  ...sessionOptional,
+  tool: z.string().min(1).max(200),
+  status: z.enum(['succeeded', 'failed']),
+  duration_ms: z.number().int().nonnegative(),
+  target: z.string().min(1).max(1024).optional(),
+  tool_call_id: z.string().min(1).max(200).optional(),
+});
+
 export type StartAgentSessionInput = z.infer<typeof startAgentSessionSchema>;
 export type EndAgentSessionInput = z.infer<typeof endAgentSessionSchema>;
 export type ReportInterruptionInput = z.infer<typeof reportInterruptionSchema>;
@@ -75,3 +95,4 @@ export type ReportTimeoutInput = z.infer<typeof reportTimeoutSchema>;
 export type ReportProgressMilestoneInput = z.infer<typeof reportProgressMilestoneSchema>;
 export type ReportFulfilmentInput = z.infer<typeof reportFulfilmentSchema>;
 export type ReportVerificationInput = z.infer<typeof reportVerificationSchema>;
+export type ReportToolCallInput = z.infer<typeof reportToolCallSchema>;

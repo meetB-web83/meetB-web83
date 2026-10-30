@@ -2,23 +2,40 @@
  * Embedded OpenCode lifecycle plugin (committed embed output, D-011/D-022 pattern).
  *
  * Source of truth for the file `workjournal setup` writes to OpenCode's
- * auto-loaded plugin directory. It uses only the OpenCode plugin surface
- * verified against an installed plugin: default export `{ id, setup }`, an
- * async-iterable `ctx.event.subscribe({ signal })`, and `ctx.location.directory`.
- * Events are project-scoped by looking the workspace up in Core's project list;
- * Core's ingestion endpoint requires exactly one project per request.
+ * auto-loaded plugin directory. Uses only the OpenCode V2 plugin surface
+ * verified against https://opencode.ai/docs/plugins/#events:
+ * default export `{ id, setup }`, `ctx.event.subscribe({ signal })` for session
+ * lifecycle events, and `tool.execute.before` / `tool.execute.after` hooks for
+ * per-tool activity. Events are project-scoped by matching the workspace against
+ * Core's registered project roots; Core's ingestion endpoint requires exactly
+ * one project per request.
  */
 
-export const opencodePluginVersion = '2';
+export const opencodePluginVersion = '3';
 
 export const opencodePluginSource = String.raw`
 /**
  * WorkJournal lifecycle plugin for OpenCode.
  *
- * Observes session lifecycle signals and POSTs canonical ledger envelopes to
- * Core's POST /api/ingest/events. Delivery uses a bounded in-memory queue with
- * backoff when Core is down; the plugin never starts Core itself. Tool-call
- * logging is intentionally absent: Core only ingests ledger event types.
+ * Observes OpenCode V2 session lifecycle events and tool execution hooks, and
+ * POSTs canonical ledger envelopes to Core's POST /api/ingest/events. Delivery
+ * uses a bounded in-memory queue with backoff when Core is down; the plugin
+ * never starts Core itself.
+ *
+ * Session events (verified against OpenCode V2 plugin API):
+ *   session.created        -> agent_session_started
+ *   session.deleted        -> agent_session_ended (reason: completed)
+ *   session.error          -> agent_interrupted
+ *   session.idle           -> agent_idle
+ *   session.status         -> agent_session_ended (from data.status)
+ *   session.updated        -> agent_session_ended (from data.status)
+ *
+ * Tool hooks:
+ *   tool.execute.before    -> track tool call, capture file path
+ *   tool.execute.after     -> track success/failure, capture file path
+ *
+ * On session end, emits agent_session_ended with duration_ms,
+ * tool_call_count, failed_tool_call_count, and files_touched.
  */
 
 const AGENT_ID = 'opencode';
@@ -34,6 +51,64 @@ const RETRY_MS = 5000;
 const report = function report(message) {
   console.warn(message);
 };
+
+/** Per-session state accumulated during the session for the run summary. */
+const sessionState = new Map(); // sessionId -> { startTime, toolCalls, failedToolCalls, filesTouched, ended, activeTools }
+
+function getSession(sessionId) {
+  let s = sessionState.get(sessionId);
+  if (!s) {
+    s = { startTime: Date.now(), toolCalls: 0, failedToolCalls: 0, filesTouched: new Set(), ended: false, activeTools: new Map() };
+    sessionState.set(sessionId, s);
+  }
+  return s;
+}
+
+function endSession(sessionId, reason, extra) {
+  const s = sessionState.get(sessionId);
+  if (!s || s.ended) return null;
+  s.ended = true;
+  const durationMs = Date.now() - s.startTime;
+  sessionState.delete(sessionId);
+  return {
+    ...extra,
+    agent_id: AGENT_ID,
+    session_id: sessionId,
+    reason: reason,
+    duration_ms: Math.round(durationMs),
+    tool_call_count: s.toolCalls,
+    failed_tool_call_count: s.failedToolCalls,
+    files_touched: Array.from(s.filesTouched).slice(0, 100),
+  };
+}
+
+function captureFilePath(sessionId, args) {
+  if (!args || typeof args !== 'object') return;
+  const s = getSession(sessionId);
+  const filePath = args.filePath || args.path || args.file;
+  if (filePath && typeof filePath === 'string') {
+    s.filesTouched.add(filePath);
+  }
+}
+
+/** Extract a short target identifier (file path or command) from tool args, redacting secrets. */
+function captureTarget(args) {
+  if (!args || typeof args !== 'object') return undefined;
+  const target = args.filePath || args.path || args.file || args.command || args.query;
+  if (!target || typeof target !== 'string') return undefined;
+  return redactSecrets(target).slice(0, 1024);
+}
+
+/** Redact known secret patterns from a string. Mirrors Core's export secret filter. */
+function redactSecrets(text) {
+  return String(text)
+    .replace(/sk-[A-Za-z0-9]{20,}/g, '[REDACTED]')
+    .replace(/ghp_[A-Za-z0-9]{36}/g, '[REDACTED]')
+    .replace(/AKIA[0-9A-Z]{16}/g, '[REDACTED]')
+    .replace(/(password|token|secret|api_key)\s*[:=]\s*\S+/gi, '$1=[REDACTED]')
+    .replace(/Bearer\s+\S+/gi, 'Bearer [REDACTED]')
+    .replace(/-----BEGIN [A-Z ]+-----([\s\S]*?)-----END [A-Z ]+-----/g, '[REDACTED KEY]');
+}
 
 function newEventId() {
   const cryptoApi = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined;
@@ -205,7 +280,6 @@ const plugin = {
     const directory = (ctx && ctx.location && ctx.location.directory) || (typeof process !== 'undefined' ? process.cwd() : '');
     const queue = new DeliveryQueue();
     const unload = new AbortController();
-    const ended = new Set();
 
     function emit(type, payload) {
       queue.push({ directory: directory, envelope: envelope(type, payload) });
@@ -217,34 +291,28 @@ const plugin = {
           const data = (event && event.data) || {};
           const sessionId = data.sessionID || data.session_id;
           if (!sessionId) continue;
-          const payload = { agent_id: AGENT_ID, session_id: sessionId };
 
           switch (event.type) {
-            case 'session.created':
-              emit('agent_session_started', payload);
-              break;
-            case 'session.execution.succeeded':
-            case 'session.execution.failed':
-            case 'session.execution.interrupted': {
-              if (ended.has(sessionId)) break;
-              ended.add(sessionId);
-              const reason =
-                event.type === 'session.execution.succeeded'
-                  ? 'completed'
-                  : event.type === 'session.execution.interrupted'
-                    ? 'interrupted'
-                    : 'failed';
-              emit('agent_session_ended', { agent_id: AGENT_ID, session_id: sessionId, reason: reason });
+            case 'session.created': {
+              getSession(sessionId);
+              emit('agent_session_started', { agent_id: AGENT_ID, session_id: sessionId });
               break;
             }
-            case 'session.deleted':
-              if (!ended.has(sessionId)) {
-                ended.add(sessionId);
-                emit('agent_session_ended', { agent_id: AGENT_ID, session_id: sessionId, reason: 'completed' });
-              }
+            case 'session.deleted': {
+              const ended = endSession(sessionId, 'completed');
+              if (ended) emit('agent_session_ended', ended);
               break;
+            }
+            case 'session.status':
+            case 'session.updated': {
+              const status = data.status;
+              if (!status) break;
+              const ended = endSession(sessionId, status === 'timeout' ? 'timeout' : status === 'interrupted' ? 'interrupted' : status === 'failed' ? 'failed' : 'completed');
+              if (ended) emit('agent_session_ended', ended);
+              break;
+            }
             case 'session.idle':
-              emit('agent_idle', payload);
+              emit('agent_idle', { agent_id: AGENT_ID, session_id: sessionId });
               break;
             case 'session.error': {
               const raw = (data.error && data.error.message) || data.message || 'error';
@@ -264,7 +332,7 @@ const plugin = {
       }
     })();
 
-    return async () => {
+    const teardown = async () => {
       unload.abort();
       try {
         await eventTask;
@@ -273,6 +341,41 @@ const plugin = {
       }
       await queue.dispose();
     };
+
+    // Tool execution hooks — registered by OpenCode from the returned object.
+    teardown['tool.execute.before'] = async (input, output) => {
+      const sessionId = (input && input.sessionID) || (input && input.session_id) || (output && output.sessionID) || (output && output.session_id) || 'unknown';
+      const s = getSession(sessionId);
+      s.toolCalls += 1;
+      const toolName = input && input.tool ? String(input.tool) : 'unknown';
+      s.activeTools.set(toolName + '_' + Date.now(), { startTime: Date.now(), tool: toolName, args: input && input.args });
+      captureFilePath(sessionId, input && input.args);
+      captureFilePath(sessionId, output && output.args);
+    };
+
+    teardown['tool.execute.after'] = async (input, output) => {
+      const sessionId = (input && input.sessionID) || (input && input.session_id) || (output && output.sessionID) || (output && output.session_id) || 'unknown';
+      const s = getSession(sessionId);
+      if (output && output.error) s.failedToolCalls += 1;
+      captureFilePath(sessionId, input && input.args);
+      captureFilePath(sessionId, output && output.args);
+
+      const toolName = input && input.tool ? String(input.tool) : 'unknown';
+      const status = output && output.error ? 'failed' : 'succeeded';
+      const target = captureTarget(input && input.args);
+      const durationMs = Date.now() - s.startTime;
+
+      emit('agent_tool_call', {
+        agent_id: AGENT_ID,
+        session_id: sessionId,
+        tool: toolName,
+        status: status,
+        duration_ms: Math.max(0, Math.round(durationMs)),
+        ...(target ? { target: target } : {}),
+      });
+    };
+
+    return teardown;
   },
 };
 

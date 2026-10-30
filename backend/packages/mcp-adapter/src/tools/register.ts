@@ -24,6 +24,7 @@ import {
   reportProgressMilestoneSchema,
   reportFulfilmentSchema,
   reportVerificationSchema,
+  reportToolCallSchema,
   projectIdFromAgentId,
   type IngestEnvelopeInput,
 } from '@workjournal/shared';
@@ -266,6 +267,12 @@ export function registerTools(server: McpServer, coreUrl: string) {
       agent_id: a.agent_id,
       session_id: a.session_id,
       reason: a.reason,
+      ...(a.duration_ms !== undefined ? { duration_ms: a.duration_ms } : {}),
+      ...(a.tool_call_count !== undefined ? { tool_call_count: a.tool_call_count } : {}),
+      ...(a.failed_tool_call_count !== undefined ? { failed_tool_call_count: a.failed_tool_call_count } : {}),
+      ...(a.files_touched ? { files_touched: a.files_touched } : {}),
+      ...(a.input_tokens !== undefined ? { input_tokens: a.input_tokens } : {}),
+      ...(a.output_tokens !== undefined ? { output_tokens: a.output_tokens } : {}),
     })),
   );
 
@@ -314,6 +321,11 @@ export function registerTools(server: McpServer, coreUrl: string) {
       ...(a.blockers ? { blockers: a.blockers } : {}),
       ...(a.next_steps ? { next_steps: a.next_steps } : {}),
       ...(a.files_changed ? { files_changed: a.files_changed } : {}),
+      ...(a.duration_ms !== undefined ? { duration_ms: a.duration_ms } : {}),
+      ...(a.tool_call_count !== undefined ? { tool_call_count: a.tool_call_count } : {}),
+      ...(a.failed_tool_call_count !== undefined ? { failed_tool_call_count: a.failed_tool_call_count } : {}),
+      ...(a.input_tokens !== undefined ? { input_tokens: a.input_tokens } : {}),
+      ...(a.output_tokens !== undefined ? { output_tokens: a.output_tokens } : {}),
     })),
   );
 
@@ -330,5 +342,20 @@ export function registerTools(server: McpServer, coreUrl: string) {
         ...(a.detail ? { detail: a.detail } : {}),
       }),
     ),
+  );
+
+  tool(
+    'report_tool_call',
+    'Record a single tool call with target, duration, and outcome (ledger event; no task transition).',
+    reportToolCallSchema.shape,
+    reportEvent('agent_tool_call', (a) => ({
+      agent_id: a.agent_id,
+      ...(a.session_id ? { session_id: a.session_id } : {}),
+      tool: a.tool,
+      status: a.status,
+      duration_ms: a.duration_ms,
+      ...(a.target ? { target: a.target } : {}),
+      ...(a.tool_call_id ? { tool_call_id: a.tool_call_id } : {}),
+    })),
   );
 }

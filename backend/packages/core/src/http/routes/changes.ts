@@ -59,8 +59,15 @@ export function registerChangesRoutes(
       'X-Accel-Buffering': 'no',
     });
 
+    // Flush headers so the connection acknowledgement reaches the client
+    // immediately, even before the first data frame.
+    reply.raw.flushHeaders?.();
+
     // Immediately acknowledge the connection so the client knows it's open.
     reply.raw.write(': connected\n\n');
+
+    // Tell reconnecting clients how long to wait before retrying (milliseconds).
+    reply.raw.write('retry: 3000\n\n');
 
     const heartbeat = setInterval(() => {
       try {
