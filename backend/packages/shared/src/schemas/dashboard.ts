@@ -9,6 +9,11 @@ import { z } from 'zod';
 export const dashboardQuerySchema = z.object({
   project_id: z.string().min(1).optional(),
   recent_limit: z.coerce.number().int().min(1).max(25).default(6),
+  /** When true (MCP agent call), response is projected to agent-minimal fields. */
+  agentCall: z.preprocess(
+    (value) => (value === 'true' ? true : value === 'false' ? false : value),
+    z.boolean().optional(),
+  ),
 });
 
 export type DashboardQuery = z.infer<typeof dashboardQuerySchema>;

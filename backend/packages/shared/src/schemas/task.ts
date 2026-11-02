@@ -65,6 +65,11 @@ export const listTasksQuerySchema = z.object({
   priority: z.nativeEnum(Priority).optional(),
   limit: z.coerce.number().int().min(1).max(500).default(25),
   offset: z.coerce.number().int().min(0).default(0),
+  /** When true (MCP agent call), response is projected to agent-minimal fields. */
+  agentCall: z.preprocess(
+    (value) => (value === 'true' ? true : value === 'false' ? false : value),
+    z.boolean().optional(),
+  ),
 });
 
 /**

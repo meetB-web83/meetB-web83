@@ -40,7 +40,7 @@ export class DecisionService {
     this.idem = new IdempotencyService(db);
   }
 
-  async createDecision(data: CreateDecisionData) {
+  async createDecision(data: CreateDecisionData, agentCall?: boolean) {
     return this.idem.run(
       'idempotency_records',
       data.idempotency && { ...data.idempotency, operation: 'decision.create', actor: data.agentId },
@@ -74,29 +74,29 @@ export class DecisionService {
           payload: { decision_id: id, statement: data.statement },
         });
 
-        return this.getDecision(id);
+        return this.getDecision(id, agentCall);
       },
     );
   }
 
-  getDecision(decisionId: string) {
+  getDecision(decisionId: string, agentCall?: boolean) {
     const row = this.db.raw.prepare('SELECT * FROM decisions WHERE id = ?').get(decisionId) as any;
     if (!row) throw new NotFoundError(`Decision ${decisionId} not found`);
-    return toDecisionRow(row);
+    return projectDecisionRow(toDecisionRow(row), agentCall);
   }
 
-  listDecisions(taskId: string, includeSuperseded = false) {
-    if (includeSuperseded) {
-      return (this.db.raw
-        .prepare('SELECT * FROM decisions WHERE task_id = ? ORDER BY created_at ASC, id ASC')
-        .all(taskId) as any[]).map(toDecisionRow);
-    }
-    return (this.db.raw
-      .prepare("SELECT * FROM decisions WHERE task_id = ? AND status = 'active' ORDER BY created_at ASC, id ASC")
-      .all(taskId) as any[]).map(toDecisionRow);
+  listDecisions(taskId: string, includeSuperseded = false, agentCall?: boolean) {
+    const rows = includeSuperseded
+      ? (this.db.raw
+          .prepare('SELECT * FROM decisions WHERE task_id = ? ORDER BY created_at ASC, id ASC')
+          .all(taskId) as any[])
+      : (this.db.raw
+          .prepare("SELECT * FROM decisions WHERE task_id = ? AND status = 'active' ORDER BY created_at ASC, id ASC")
+          .all(taskId) as any[]);
+    return rows.map((row) => projectDecisionRow(toDecisionRow(row), agentCall));
   }
 
-  async supersedeDecision(data: SupersedeDecisionData) {
+  async supersedeDecision(data: SupersedeDecisionData, agentCall?: boolean) {
     return this.idem.run(
       'idempotency_records',
       data.idempotency && { ...data.idempotency, operation: 'decision.supersede', actor: data.agentId },
@@ -134,8 +134,36 @@ export class DecisionService {
           },
         });
 
-        return this.getDecision(newId);
+        return this.getDecision(newId, agentCall);
       },
     );
   }
+}
+
+/**
+ * Project a decision row to the field set needed by the caller.
+ * - agentCall=true (MCP agent): minimal fields — id, statement, status, created_at.
+ * - agentCall=false (frontend dashboard): fields needed by task detail view.
+ * - absent: full row (backward compatible).
+ */
+function projectDecisionRow(row: Record<string, any>, agentCall?: boolean): Record<string, any> {
+  if (agentCall === true) {
+    return {
+      id: row.id,
+      statement: row.statement,
+      status: row.status,
+      created_at: row.created_at,
+    };
+  }
+  if (agentCall === false) {
+    return {
+      id: row.id,
+      task_id: row.task_id,
+      statement: row.statement,
+      rationale: row.rationale,
+      status: row.status,
+      created_at: row.created_at,
+    };
+  }
+  return row;
 }

@@ -20,7 +20,7 @@ import { DashboardService } from '../../domain/dashboard-service.js';
 
 export async function registerTaskRoutes(server: FastifyInstance) {
   server.post('/', { preHandler: [validateBody(createTaskSchema)] }, async (request, reply) => {
-    const input = request.body as CreateTaskInput;
+    const input = request.body as CreateTaskInput & { agentCall?: boolean };
     if (!input.project_id) {
       throw new ValidationError('project_id is required');
     }
@@ -33,12 +33,13 @@ export async function registerTaskRoutes(server: FastifyInstance) {
       priority: input.priority,
       agentId: input.agent_id,
       idempotency: { key: input.idempotency_key, input: operationInput(input) },
-    });
+    }, input.agentCall);
     return reply.status(201).send(task);
   });
 
   server.get('/', { preHandler: [validateQuery(listTasksQuerySchema)] }, async (request) => {
-    const query = request.query as ListTasksQuery;
+    const query = request.query as ListTasksQuery & { agentCall?: boolean };
+    const agentCall = query.agentCall;
     if (query.project_id) {
       const db = server.projectDbs.forProject(query.project_id);
       return buildServices(db).tasks.listTasks({
@@ -47,6 +48,7 @@ export async function registerTaskRoutes(server: FastifyInstance) {
         priority: query.priority,
         limit: query.limit,
         offset: query.offset,
+        agentCall,
       });
     }
 
@@ -58,18 +60,20 @@ export async function registerTaskRoutes(server: FastifyInstance) {
       priority: query.priority,
       limit: query.limit,
       offset: query.offset,
+      agentCall,
     });
   });
 
   server.get('/:id', async (request) => {
     const { id } = request.params as { id: string };
     const scope = server.projectDbs.forTask(id);
-    return buildServices(scope.db).tasks.getTask(id);
+    const query = request.query as { agentCall?: boolean };
+    return buildServices(scope.db).tasks.getTask(id, query.agentCall);
   });
 
   server.patch('/:id', { preHandler: [validateBody(updateTaskSchema)] }, async (request) => {
     const { id } = request.params as { id: string };
-    const input = request.body as UpdateTaskInput;
+    const input = request.body as UpdateTaskInput & { agentCall?: boolean };
     const scope = server.projectDbs.forTask(id);
     return buildServices(scope.db).tasks.updateTask(
       id,
@@ -81,6 +85,7 @@ export async function registerTaskRoutes(server: FastifyInstance) {
         priority: input.priority,
       },
       { key: input.idempotency_key, input: operationInput(input) },
+      input.agentCall,
     );
   });
 
@@ -92,7 +97,7 @@ export async function registerTaskRoutes(server: FastifyInstance) {
 
   server.post('/:id/claim', { preHandler: [validateBody(claimTaskSchema)] }, async (request) => {
     const { id } = request.params as { id: string };
-    const input = request.body as ClaimTaskInput;
+    const input = request.body as ClaimTaskInput & { agentCall?: boolean };
     assertTaskParam(id, input.task_id);
     const scope = server.projectDbs.forTask(id);
     return buildServices(scope.db).tasks.claimTask(
@@ -100,24 +105,26 @@ export async function registerTaskRoutes(server: FastifyInstance) {
       input.agent_id,
       { key: input.idempotency_key, input: operationInput(input) },
       input.session_id ?? null,
+      input.agentCall,
     );
   });
 
   server.post('/:id/release', { preHandler: [validateBody(releaseTaskSchema)] }, async (request) => {
     const { id } = request.params as { id: string };
-    const input = request.body as ReleaseTaskInput;
+    const input = request.body as ReleaseTaskInput & { agentCall?: boolean };
     assertTaskParam(id, input.task_id);
     const scope = server.projectDbs.forTask(id);
     return buildServices(scope.db).tasks.releaseTask(
       id,
       input.agent_id,
       { key: input.idempotency_key, input: operationInput(input) },
+      input.agentCall,
     );
   });
 
   server.post('/:id/transition', { preHandler: [validateBody(transitionTaskSchema)] }, async (request) => {
     const { id } = request.params as { id: string };
-    const input = request.body as TransitionTaskInput;
+    const input = request.body as TransitionTaskInput & { agentCall?: boolean };
     assertTaskParam(id, input.task_id);
     const scope = server.projectDbs.forTask(id);
     return buildServices(scope.db).tasks.transitionTask(
@@ -127,6 +134,7 @@ export async function registerTaskRoutes(server: FastifyInstance) {
       input.reason,
       input.resolution_note,
       { key: input.idempotency_key, input: operationInput(input) },
+      input.agentCall,
     );
   });
 }

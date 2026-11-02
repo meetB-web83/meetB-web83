@@ -17,6 +17,11 @@ export const createDecisionSchema = z.object({
   alternatives: z.array(z.string().max(1000)).max(20).optional(),
   supporting_event_ids: z.array(z.string()).max(50).optional(),
   idempotency_key: idempotencyKeySchema,
+  /** When true (MCP agent call), response is projected to agent-minimal fields. */
+  agentCall: z.preprocess(
+    (value) => (value === 'true' ? true : value === 'false' ? false : value),
+    z.boolean().optional(),
+  ),
 });
 
 export const supersedeDecisionSchema = z.object({
@@ -26,6 +31,11 @@ export const supersedeDecisionSchema = z.object({
   replacement_statement: z.string().min(1).max(2000),
   replacement_rationale: z.string().max(5000).optional(),
   idempotency_key: idempotencyKeySchema,
+  /** When true (MCP agent call), response is projected to agent-minimal fields. */
+  agentCall: z.preprocess(
+    (value) => (value === 'true' ? true : value === 'false' ? false : value),
+    z.boolean().optional(),
+  ),
 });
 
 export const decisionResponseSchema = z.object({
@@ -43,6 +53,11 @@ export const decisionResponseSchema = z.object({
 export const listDecisionsQuerySchema = z.object({
   task_id: z.string().min(1),
   include_superseded: queryBoolean.default(false),
+  /** When true (MCP agent call), response is projected to agent-minimal fields. */
+  agentCall: z.preprocess(
+    (value) => (value === 'true' ? true : value === 'false' ? false : value),
+    z.boolean().optional(),
+  ),
 });
 
 export type CreateDecisionInput = z.infer<typeof createDecisionSchema>;

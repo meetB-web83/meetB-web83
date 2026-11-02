@@ -11,6 +11,11 @@ export const createCheckpointSchema = z.object({
   next_steps: z.string().max(5000).optional(),
   file_references: z.array(z.string().max(1024)).max(50).optional(),
   idempotency_key: idempotencyKeySchema,
+  /** When true (MCP agent call), response is projected to agent-minimal fields. */
+  agentCall: z.preprocess(
+    (value) => (value === 'true' ? true : value === 'false' ? false : value),
+    z.boolean().optional(),
+  ),
 });
 
 export const checkpointResponseSchema = z.object({
@@ -29,6 +34,11 @@ export const listCheckpointsQuerySchema = z.object({
   task_id: z.string().min(1),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
+  /** When true (MCP agent call), response is projected to agent-minimal fields. */
+  agentCall: z.preprocess(
+    (value) => (value === 'true' ? true : value === 'false' ? false : value),
+    z.boolean().optional(),
+  ),
 });
 
 export type CreateCheckpointInput = z.infer<typeof createCheckpointSchema>;

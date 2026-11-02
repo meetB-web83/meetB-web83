@@ -35,6 +35,11 @@ export const listEventsQuerySchema = z.object({
   source: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(500).default(100),
   offset: z.coerce.number().int().min(0).default(0),
+  /** When true (MCP agent call), response is projected to agent-minimal fields. */
+  agentCall: z.preprocess(
+    (value) => (value === 'true' ? true : value === 'false' ? false : value),
+    z.boolean().optional(),
+  ),
 });
 
 export type EventResponse = z.infer<typeof eventResponseSchema>;

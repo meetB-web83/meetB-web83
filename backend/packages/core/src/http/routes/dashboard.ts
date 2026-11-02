@@ -7,7 +7,7 @@ export async function registerDashboardRoutes(server: FastifyInstance) {
   const dashboard = new DashboardService(server.projectDbs);
 
   server.get('/', { preHandler: [validateQuery(dashboardQuerySchema)] }, async (request) => {
-    const query = request.query as DashboardQuery;
-    return dashboard.getOverview({ projectId: query.project_id, recentLimit: query.recent_limit });
+    const query = request.query as DashboardQuery & { agentCall?: boolean };
+    return dashboard.getOverview({ projectId: query.project_id, recentLimit: query.recent_limit, agentCall: query.agentCall });
   });
 }

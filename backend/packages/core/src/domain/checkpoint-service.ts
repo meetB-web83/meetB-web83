@@ -32,7 +32,7 @@ export class CheckpointService {
     this.idem = new IdempotencyService(db);
   }
 
-  async createCheckpoint(data: CreateCheckpointData) {
+  async createCheckpoint(data: CreateCheckpointData, agentCall?: boolean) {
     return this.idem.run(
       'idempotency_records',
       data.idempotency && { ...data.idempotency, operation: 'checkpoint.create', actor: data.agentId },
@@ -72,21 +72,21 @@ export class CheckpointService {
           payload: { checkpoint_id: id, progress_summary: data.progressSummary },
         });
 
-        return this.getCheckpoint(id);
+        return this.getCheckpoint(id, agentCall);
       },
     );
   }
 
-  getCheckpoint(checkpointId: string) {
+  getCheckpoint(checkpointId: string, agentCall?: boolean) {
     const row = this.db.raw.prepare('SELECT * FROM checkpoints WHERE id = ?').get(checkpointId) as any;
     if (!row) throw new NotFoundError(`Checkpoint ${checkpointId} not found`);
-    return toCheckpointRow(row);
+    return projectCheckpointRow(toCheckpointRow(row), agentCall);
   }
 
-  listCheckpoints(taskId: string, limit = 50, offset = 0) {
+  listCheckpoints(taskId: string, limit = 50, offset = 0, agentCall?: boolean) {
     return (this.db.raw
       .prepare('SELECT * FROM checkpoints WHERE task_id = ? ORDER BY created_at DESC, id ASC LIMIT ? OFFSET ?')
-      .all(taskId, limit, offset) as any[]).map(toCheckpointRow);
+      .all(taskId, limit, offset) as any[]).map((row) => projectCheckpointRow(toCheckpointRow(row), agentCall));
   }
 
   getLatestCheckpoint(taskId: string) {
@@ -95,4 +95,30 @@ export class CheckpointService {
       .get(taskId) as any;
     return row ? toCheckpointRow(row) : undefined;
   }
+}
+
+/**
+ * Project a checkpoint row to the field set needed by the caller.
+ * - agentCall=true (MCP agent): minimal fields — id, progress_summary, created_at.
+ * - agentCall=false (frontend dashboard): fields needed by task detail view.
+ * - absent: full row (backward compatible).
+ */
+function projectCheckpointRow(row: Record<string, any>, agentCall?: boolean): Record<string, any> {
+  if (agentCall === true) {
+    return {
+      id: row.id,
+      progress_summary: row.progress_summary,
+      created_at: row.created_at,
+    };
+  }
+  if (agentCall === false) {
+    return {
+      id: row.id,
+      task_id: row.task_id,
+      progress_summary: row.progress_summary,
+      next_steps: row.next_steps,
+      created_at: row.created_at,
+    };
+  }
+  return row;
 }

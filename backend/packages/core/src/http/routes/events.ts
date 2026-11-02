@@ -15,7 +15,8 @@ import { buildServices } from '../services.js';
  */
 export async function registerEventRoutes(server: FastifyInstance) {
   server.get('/', { preHandler: [validateQuery(listEventsQuerySchema)] }, async (request) => {
-    const query = request.query as ListEventsQuery;
+    const query = request.query as ListEventsQuery & { agentCall?: boolean };
+    const agentCall = query.agentCall;
     if (!query.task_id && !query.project_id) {
       throw new ValidationError('Provide exactly one of task_id or project_id.');
     }
@@ -31,6 +32,7 @@ export async function registerEventRoutes(server: FastifyInstance) {
       source: query.source,
       limit: query.limit,
       offset: query.offset,
+      agentCall,
     });
   });
 }

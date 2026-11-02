@@ -58,6 +58,7 @@ export interface ListEventsFilter {
   source?: string;
   limit?: number;
   offset?: number;
+  agentCall?: boolean;
 }
 
 const objectPayload = z.record(z.unknown());
@@ -213,7 +214,8 @@ export class EventService {
     query += ' ORDER BY sequence ASC, id ASC LIMIT ? OFFSET ?';
     params.push(filter.limit ?? 100, filter.offset ?? 0);
 
-    return (this.db.raw.prepare(query).all(...params) as any[]).map(toEventRow);
+    const rows = (this.db.raw.prepare(query).all(...params) as any[]).map(toEventRow);
+    return rows.map((row) => projectEventRow(row, filter.agentCall));
   }
 
   getEventsSince(taskId: string, sinceSequence: number) {
@@ -253,4 +255,22 @@ function toAppended(row: Record<string, any>): AppendedEvent {
     occurred_at: row.occurred_at ?? row.created_at,
     duplicate: true,
   };
+}
+
+/**
+ * Project an event row to the field set needed by the caller.
+ * - agentCall=true (MCP agent): minimal fields for scanning task history.
+ * - agentCall=false (frontend dashboard): full event envelope.
+ * - absent: full row (backward compatible).
+ */
+function projectEventRow(row: Record<string, any>, agentCall?: boolean): Record<string, any> {
+  if (agentCall === true) {
+    return {
+      sequence: row.sequence,
+      event_type: row.event_type,
+      actor: row.actor,
+      created_at: row.created_at,
+    };
+  }
+  return row;
 }

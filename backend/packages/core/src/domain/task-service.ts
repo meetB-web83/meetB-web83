@@ -54,7 +54,7 @@ export class TaskService {
     this.idem = new IdempotencyService(db);
   }
 
-  async createTask(data: CreateTaskData) {
+  async createTask(data: CreateTaskData, agentCall?: boolean) {
     const id = uuid();
     const now = new Date().toISOString();
     const actor = data.agentId ?? 'system';
@@ -89,25 +89,33 @@ export class TaskService {
           payload: { title: data.title, priority },
         });
 
-        return this.getTask(id);
+        return this.getTask(id, agentCall);
       },
     );
   }
 
-  getTask(taskId: string) {
+  getTask(taskId: string, agentCall?: boolean) {
     const row = this.db.raw.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId) as any;
     if (!row) throw new NotFoundError(`Task ${taskId} not found`);
-    return toTaskRow(row);
+    return projectTaskRow(toTaskRow(row), agentCall);
   }
 
-  listTasks(filter: { projectId: string; status?: string; priority?: string; limit: number; offset: number }) {
+  listTasks(filter: {
+    projectId: string;
+    status?: string;
+    priority?: string;
+    limit: number;
+    offset: number;
+    agentCall?: boolean;
+  }) {
     let query = 'SELECT * FROM tasks WHERE project_id = ?';
     const params: any[] = [filter.projectId];
     if (filter.status) { query += ' AND status = ?'; params.push(filter.status); }
     if (filter.priority) { query += ' AND priority = ?'; params.push(filter.priority); }
     query += ' ORDER BY created_at DESC, id ASC LIMIT ? OFFSET ?';
     params.push(filter.limit, filter.offset);
-    return (this.db.raw.prepare(query).all(...params) as any[]).map(toTaskRow);
+    const rows = (this.db.raw.prepare(query).all(...params) as any[]).map(toTaskRow);
+    return rows.map((row) => projectTaskRow(row, filter.agentCall));
   }
 
   async updateTask(
@@ -115,6 +123,7 @@ export class TaskService {
     agentId: string,
     updates: TaskUpdateData,
     idempotency?: MutationIdempotency,
+    agentCall?: boolean,
   ) {
     return this.idem.run(
       'idempotency_records',
@@ -151,7 +160,7 @@ export class TaskService {
           payload: { fields: changed },
         });
 
-        return this.getTask(taskId);
+        return this.getTask(taskId, agentCall);
       },
     );
   }
@@ -170,6 +179,7 @@ export class TaskService {
     agentId: string,
     idempotency?: MutationIdempotency,
     sessionId?: string | null,
+    agentCall?: boolean,
   ) {
     return this.idem.run(
       'idempotency_records',
@@ -207,12 +217,12 @@ export class TaskService {
           this.bindings.bind(sessionId, task.project_id, taskId, agentId);
         }
 
-        return this.getTask(taskId);
+        return this.getTask(taskId, agentCall);
       },
     );
   }
 
-  async releaseTask(taskId: string, agentId: string, idempotency?: MutationIdempotency) {
+  async releaseTask(taskId: string, agentId: string, idempotency?: MutationIdempotency, agentCall?: boolean) {
     return this.idem.run(
       'idempotency_records',
       idempotency && { ...idempotency, operation: 'task.release', actor: agentId },
@@ -246,7 +256,7 @@ export class TaskService {
         // WS-2.5: a released task no longer correlates its sessions.
         this.bindings.releaseForTask(taskId);
 
-        return this.getTask(taskId);
+        return this.getTask(taskId, agentCall);
       },
     );
   }
@@ -258,6 +268,7 @@ export class TaskService {
     reason?: string,
     resolutionNote?: string,
     idempotency?: MutationIdempotency,
+    agentCall?: boolean,
   ) {
     return this.idem.run(
       'idempotency_records',
@@ -308,8 +319,42 @@ export class TaskService {
           },
         });
 
-        return this.getTask(taskId);
+        return this.getTask(taskId, agentCall);
       },
     );
   }
+}
+
+/**
+ * Project a task row to the field set needed by the caller.
+ * - agentCall=true (MCP agent): minimal fields for scanning/acting on a task.
+ * - agentCall=false (frontend dashboard): fields needed by TaskCard/TaskList.
+ * - absent: full row (backward compatible).
+ */
+function projectTaskRow(row: Record<string, any>, agentCall?: boolean): Record<string, any> {
+  if (agentCall === true) {
+    return {
+      id: row.id,
+      title: row.title,
+      status: row.status,
+      priority: row.priority,
+      owner: row.owner,
+      updated_at: row.updated_at,
+    };
+  }
+  if (agentCall === false) {
+    return {
+      id: row.id,
+      project_id: row.project_id,
+      title: row.title,
+      objective: row.objective,
+      acceptance_criteria: row.acceptance_criteria,
+      status: row.status,
+      priority: row.priority,
+      owner: row.owner,
+      updated_at: row.updated_at,
+      latest_checkpoint_id: row.latest_checkpoint_id,
+    };
+  }
+  return row;
 }

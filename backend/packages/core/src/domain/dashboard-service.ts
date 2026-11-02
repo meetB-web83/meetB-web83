@@ -8,6 +8,7 @@ export interface CrossProjectTaskFilter {
   priority?: string;
   limit: number;
   offset: number;
+  agentCall?: boolean;
 }
 
 const ACTIVE_STATUSES: Set<string> = new Set([
@@ -35,6 +36,7 @@ export class DashboardService {
         priority: filter.priority,
         limit: filter.limit,
         offset: filter.offset,
+        agentCall: filter.agentCall,
       });
     }
 
@@ -53,6 +55,7 @@ export class DashboardService {
           priority: filter.priority,
           limit: Math.min(filter.limit + filter.offset, 500),
           offset: 0,
+          agentCall: filter.agentCall,
         }),
       );
     }
@@ -71,7 +74,7 @@ export class DashboardService {
    * a project_id scope narrows stats and recents to that project (404 when the
    * project is unknown or its folder is unavailable).
    */
-  getOverview(query: { projectId?: string; recentLimit: number }) {
+  getOverview(query: { projectId?: string; recentLimit: number; agentCall?: boolean }) {
     const registered = this.projectDbs.allProjects();
     const projects = registered.map((row) => ({
       id: row.id,
@@ -121,6 +124,7 @@ export class DashboardService {
         projectId: query.projectId,
         limit: query.recentLimit,
         offset: 0,
+        agentCall: query.agentCall,
       }),
       projects,
     };

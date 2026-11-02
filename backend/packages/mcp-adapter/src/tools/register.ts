@@ -125,7 +125,7 @@ export function registerTools(server: McpServer, coreUrl: string, projectId?: st
           'project_id is required — pass it explicitly or initialize a project in this folder so it can be discovered.',
         );
       }
-      return callCore(coreUrl, 'POST', '/api/tasks', resolved);
+      return callCore(coreUrl, 'POST', '/api/tasks', { ...resolved, agentCall: true });
     },
   );
 
@@ -133,21 +133,21 @@ export function registerTools(server: McpServer, coreUrl: string, projectId?: st
     'get_task',
     'Fetch one task by id, including its current status and owner.',
     { task_id: z.string().min(1) },
-    (args) => callCore(coreUrl, 'GET', `/api/tasks/${args.task_id}`),
+    (args) => callCore(coreUrl, 'GET', `/api/tasks/${args.task_id}?agentCall=true`),
   );
 
   tool(
     'list_tasks',
     'List tasks in a project, optionally filtered by status and priority, with limit/offset paging (newest first).',
     listTasksQuerySchema.shape,
-    (args) => callCore(coreUrl, 'GET', `/api/tasks${query(withDiscoveredProject(args))}`),
+    (args) => callCore(coreUrl, 'GET', `/api/tasks${query({ ...withDiscoveredProject(args), agentCall: true })}`),
   );
 
   tool(
     'update_task',
     'Update the title, objective, priority or acceptance criteria of a task. Requires the current owner agent_id and an idempotency_key.',
     { task_id: z.string().min(1), ...updateTaskSchema.shape },
-    (args) => callCore(coreUrl, 'PATCH', `/api/tasks/${args.task_id}`, args),
+    (args) => callCore(coreUrl, 'PATCH', `/api/tasks/${args.task_id}`, { ...args, agentCall: true }),
   );
 
   // ---- Claims and transitions --------------------------------------------
@@ -163,6 +163,7 @@ export function registerTools(server: McpServer, coreUrl: string, projectId?: st
       return callCore(coreUrl, 'POST', `/api/tasks/${args.task_id}/claim`, {
         ...args,
         ...(sessionId ? { session_id: sessionId } : {}),
+        agentCall: true,
       });
     },
   );
@@ -171,7 +172,7 @@ export function registerTools(server: McpServer, coreUrl: string, projectId?: st
     'release_task',
     'Release a task you own, returning it to open.',
     releaseTaskSchema.shape,
-    (args) => callCore(coreUrl, 'POST', `/api/tasks/${args.task_id}/release`, args),
+    (args) => callCore(coreUrl, 'POST', `/api/tasks/${args.task_id}/release`, { ...args, agentCall: true }),
   );
 
   const transition =
@@ -180,6 +181,7 @@ export function registerTools(server: McpServer, coreUrl: string, projectId?: st
       callCore(coreUrl, 'POST', `/api/tasks/${args.task_id}/transition`, {
         ...args,
         target_status,
+        agentCall: true,
       });
 
   tool(
@@ -223,14 +225,14 @@ export function registerTools(server: McpServer, coreUrl: string, projectId?: st
     'record_checkpoint',
     'Record a progress checkpoint on a task: what is done, findings, unresolved issues and next steps.',
     createCheckpointSchema.shape,
-    (args) => callCore(coreUrl, 'POST', '/api/checkpoints', args),
+    (args) => callCore(coreUrl, 'POST', '/api/checkpoints', { ...args, agentCall: true }),
   );
 
   tool(
     'record_decision',
     'Record a decision on a task, with rationale and rejected alternatives, so it survives the conversation.',
     createDecisionSchema.shape,
-    (args) => callCore(coreUrl, 'POST', '/api/decisions', args),
+    (args) => callCore(coreUrl, 'POST', '/api/decisions', { ...args, agentCall: true }),
   );
 
   tool(
@@ -238,7 +240,7 @@ export function registerTools(server: McpServer, coreUrl: string, projectId?: st
     'Replace one of the task\'s decisions: the old record is kept and marked superseded, the replacement becomes active.',
     supersedeDecisionSchema.shape,
     (args) =>
-      callCore(coreUrl, 'POST', `/api/decisions/${args.decision_id}/supersede`, args),
+      callCore(coreUrl, 'POST', `/api/decisions/${args.decision_id}/supersede`, { ...args, agentCall: true }),
   );
 
   // ---- Read-back for the next session -------------------------------------
@@ -247,7 +249,7 @@ export function registerTools(server: McpServer, coreUrl: string, projectId?: st
     'get_task_history',
     'Chronological, append-only event history for a task (creation, claims, transitions, checkpoints, decisions).',
     listEventsQuerySchema.shape,
-    (args) => callCore(coreUrl, 'GET', `/api/events${query(args)}`),
+    (args) => callCore(coreUrl, 'GET', `/api/events${query({ ...args, agentCall: true })}`),
   );
 
   tool(
@@ -269,7 +271,7 @@ export function registerTools(server: McpServer, coreUrl: string, projectId?: st
     'get_dashboard',
     'Dashboard overview: task stats, recent tasks and the project scope list. Pass project_id to scope to one project; omit it for all projects.',
     dashboardQuerySchema.shape,
-    (args) => callCore(coreUrl, 'GET', `/api/dashboard${query(args)}`),
+    (args) => callCore(coreUrl, 'GET', `/api/dashboard${query({ ...args, agentCall: true })}`),
   );
 
   // ---- Agent reporting (plan §3.5, WS-2.6) --------------------------------
