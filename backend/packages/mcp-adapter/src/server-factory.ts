@@ -3,7 +3,15 @@ import { registerTools } from './tools/register.js';
 import { syncPrompts } from './prompts/registry.js';
 import { createLogger, LOG_FILE } from '@workjournal/shared';
 
-const mcpLogger = createLogger({ component: 'mcp-adapter', module: 'server-factory' });
+let _mcpLogger: ReturnType<typeof createLogger> | null = null;
+/** Lazily-created logger so importing this module does not create a pino
+ *  destination (and register a SonicBoom exit handler) until first use. */
+const mcpLogger = new Proxy({} as ReturnType<typeof createLogger>, {
+  get(_, prop: string) {
+    if (!_mcpLogger) _mcpLogger = createLogger({ component: 'mcp-adapter', module: 'server-factory' });
+    return Reflect.get(_mcpLogger, prop);
+  },
+}) as ReturnType<typeof createLogger>;
 
 /**
  * Single place where the MCP server is created and tools are registered, so
@@ -17,13 +25,16 @@ const mcpLogger = createLogger({ component: 'mcp-adapter', module: 'server-facto
  * prompts/list_changed to connected MCP clients so they pick up the new
  * templates without restarting the adapter.
  */
-export async function createMcpServer(coreUrl: string): Promise<McpServer> {
-  mcpLogger.info({ coreUrl, logFile: LOG_FILE }, 'creating MCP server');
+export async function createMcpServer(
+  coreUrl: string,
+  projectId?: string,
+): Promise<McpServer> {
+  mcpLogger.info({ coreUrl, logFile: LOG_FILE, projectId: projectId ?? null }, 'creating MCP server');
   const server = new McpServer({
     name: 'workjournal',
     version: '0.1.0',
   });
-  registerTools(server, coreUrl);
+  registerTools(server, coreUrl, projectId);
 
   // The `prompts` capability must be registered BEFORE connect() and BEFORE
   // syncPrompts, because capabilities cannot be added after connect().
@@ -31,7 +42,7 @@ export async function createMcpServer(coreUrl: string): Promise<McpServer> {
   server.server.registerCapabilities({ prompts: { listChanged: true } });
 
   try {
-    const registered = await syncPrompts(server, coreUrl, process.env.WORKJOURNAL_PROJECT_ID);
+    const registered = await syncPrompts(server, coreUrl, projectId ?? process.env.WORKJOURNAL_PROJECT_ID);
     mcpLogger.info(
       {
         coreUrl,

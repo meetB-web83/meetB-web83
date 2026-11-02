@@ -92,10 +92,24 @@ export function createLogger(bindings?: Record<string, unknown>): pino.Logger {
   return bindings ? base.child(bindings) : base;
 }
 
-/** A default logger with no bindings, for use outside request context. */
-export const logger = createLogger();
+/** A default logger with no bindings, for use outside request context. Lazily
+ *  initialized on first use so importing this module does not create a pino
+ *  destination (and register a SonicBoom exit handler) until something is
+ *  actually logged — otherwise `workjournal --help` crashes on exit because
+ *  `process.exit()` triggers SonicBoom.flushSync() on a not-ready stream. */
+let _defaultLogger: pino.Logger | null = null;
+export function getDefaultLogger(): pino.Logger {
+  if (!_defaultLogger) _defaultLogger = createLogger();
+  return _defaultLogger;
+}
+
+export const logger = new Proxy({} as pino.Logger, {
+  get(_, prop: keyof pino.Logger) {
+    return Reflect.get(getDefaultLogger(), prop);
+  },
+}) as pino.Logger;
 
 /** Create a child logger with stable context fields (e.g. prompt name, action). */
 export function child(bindings: Record<string, unknown>): pino.Logger {
-  return logger.child(bindings);
+  return createLogger(bindings);
 }

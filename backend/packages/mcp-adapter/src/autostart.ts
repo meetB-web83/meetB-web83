@@ -80,7 +80,13 @@ export function resolveSpawnTarget(env: NodeJS.ProcessEnv = process.env): SpawnT
   return null;
 }
 
-const log = createLogger({ component: 'mcp-adapter' });
+let _log: ReturnType<typeof createLogger> | null = null;
+const log = new Proxy({} as ReturnType<typeof createLogger>, {
+  get(_, prop: string) {
+    if (!_log) _log = createLogger({ component: 'mcp-adapter' });
+    return Reflect.get(_log, prop);
+  },
+}) as ReturnType<typeof createLogger>;
 
 /** Write a note to stderr (stdout is reserved for the MCP JSON-RPC stream). */
 function note(message: string): void {
@@ -487,8 +493,17 @@ export function startHeartbeat(
  * use: make sure the core is up, register the heartbeat, then serve MCP.
  */
 export async function runStdioAdapter(config: AdapterConfig): Promise<void> {
-  log.info({ component: 'mcp-adapter', action: 'start', coreUrl: config.coreUrl }, 'starting MCP adapter');
+  log.info(
+    {
+      component: 'mcp-adapter',
+      action: 'start',
+      coreUrl: config.coreUrl,
+      projectId: config.projectId ?? null,
+      markerPath: config.markerPath ?? null,
+    },
+    'starting MCP adapter',
+  );
   await ensureCore(config);
   startHeartbeat(config);
-  await startStdioServer(config.coreUrl);
+  await startStdioServer(config.coreUrl, config.projectId);
 }

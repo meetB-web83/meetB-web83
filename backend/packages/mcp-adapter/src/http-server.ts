@@ -8,7 +8,13 @@ import { checkRequest } from './validate-headers.js';
 import { createMcpServer } from './server-factory.js';
 import { createLogger } from '@workjournal/shared';
 
-const httpLogger = createLogger({ component: 'mcp-adapter', module: 'http-server' });
+let _httpLogger: ReturnType<typeof createLogger> | null = null;
+const httpLogger = new Proxy({} as ReturnType<typeof createLogger>, {
+  get(_, prop: string) {
+    if (!_httpLogger) _httpLogger = createLogger({ component: 'mcp-adapter', module: 'http-server' });
+    return Reflect.get(_httpLogger, prop);
+  },
+}) as ReturnType<typeof createLogger>;
 
 const MAX_BODY_BYTES = 1_048_576; // matches core's 1 MiB body limit
 
@@ -127,7 +133,7 @@ export function createMcpHttpServer(config: AdapterConfig): Server {
         { component: 'mcp-adapter', module: 'http-server', action: 'initialize' },
         'new MCP session initializing',
       );
-      const mcp = await createMcpServer(config.coreUrl);
+      const mcp = await createMcpServer(config.coreUrl, config.projectId);
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (id) => {

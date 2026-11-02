@@ -1,4 +1,5 @@
 import { v4 as uuid } from 'uuid';
+import type { Logger } from 'pino';
 import type { Database } from '../db/connection.js';
 import { IdempotencyService, type IdempotencyOptions } from './idempotency-service.js';
 import { ChangeBus, type PromptChangeEvent } from './change-bus.js';
@@ -28,16 +29,16 @@ export interface UpdatePromptData {
   idempotency?: MutationIdempotency;
 }
 
-const promptServiceLogger = createLogger({ component: 'core', module: 'prompt-service' });
-
 export class PromptService {
   private idem: IdempotencyService;
+  private readonly log: Logger;
   constructor(private db: Database, private changeBus?: ChangeBus) {
     this.idem = new IdempotencyService(db);
+    this.log = createLogger({ component: 'core', module: 'prompt-service' });
   }
 
   private publish(action: PromptChangeEvent['action'], promptId: string, projectId: string | null): void {
-    promptServiceLogger.info(
+    this.log.info(
       { component: 'core', module: 'prompt-service', action, promptId, projectId },
       `prompt ${action}`,
     );

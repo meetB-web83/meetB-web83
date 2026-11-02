@@ -1,6 +1,63 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { createLogger } from '@workjournal/shared';
+
+/** Walk up from `startDir` looking for `.workjournal/project.json` (like Git
+ *  finds `.git`). Returns the marker contents and path, or null. Path-spelling
+ *  safe: no string matching against host/container/WSL paths. */
+let _configLogger: ReturnType<typeof createLogger> | null = null;
+const configLogger = new Proxy({} as ReturnType<typeof createLogger>, {
+  get(_, prop: string) {
+    if (!_configLogger) _configLogger = createLogger({ component: 'mcp-adapter', module: 'config' });
+    return Reflect.get(_configLogger, prop);
+  },
+}) as ReturnType<typeof createLogger>;
+
+export function discoverProjectIdFromCwd(startDir: string = process.cwd()):
+  | { projectId: string; markerPath: string }
+  | null {
+  let dir = resolve(startDir);
+  configLogger.info({ startDir, resolvedDir: dir }, 'discoverProjectIdFromCwd: starting directory walk');
+  let steps = 0;
+  while (true) {
+    steps++;
+    const marker = resolve(dir, '.workjournal', 'project.json');
+    configLogger.debug({ dir, marker, step: steps }, 'discoverProjectIdFromCwd: checking directory for marker');
+    if (existsSync(marker)) {
+      configLogger.info({ dir, marker, step: steps }, 'discoverProjectIdFromCwd: marker file found');
+      try {
+        const parsed = JSON.parse(readFileSync(marker, 'utf-8')) as {
+          projectId?: string;
+        };
+        if (parsed.projectId) {
+          configLogger.info(
+            { dir, marker, step: steps, projectId: parsed.projectId },
+            'discoverProjectIdFromCwd: project id identified from marker',
+          );
+          return { projectId: parsed.projectId, markerPath: marker };
+        }
+        configLogger.warn({ dir, marker, step: steps }, 'discoverProjectIdFromCwd: marker found but no project id — continuing upward');
+      } catch {
+        configLogger.warn({ dir, marker, step: steps }, 'discoverProjectIdFromCwd: marker unreadable — continuing upward');
+      }
+    }
+    const parent = resolve(dir, '..');
+    if (parent === dir) {
+      configLogger.info({ startDir, steps, reachedRoot: true }, 'discoverProjectIdFromCwd: reached filesystem root — no project id found');
+      return null;
+    }
+    dir = parent;
+  }
+}
+
 export interface AdapterConfig {
   /** Which transport to run: 'stdio' (default, native dev) or 'http' (Docker / remote clients). */
   transport: 'stdio' | 'http';
+  /** Project id discovered from a `.workjournal/project.json` marker walked up
+   *  from cwd (undefined when no marker is found). */
+  projectId?: string;
+  /** Absolute path to the marker file that supplied `projectId`, if any. */
+  markerPath?: string;
   /** Core service base URL. In Docker this is the Compose service name, e.g. http://core:3737. */
   coreUrl: string;
   /** Bind address for the HTTP transport (loopback by default). */
@@ -78,9 +135,27 @@ export function loadAdapterConfig(env: NodeJS.ProcessEnv = process.env): Adapter
 
   const httpHost = env.MCP_HTTP_HOST || '127.0.0.1';
 
+  // Project id: explicit env wins; otherwise walk up from cwd for the marker.
+  const envProjectId = env.WORKJOURNAL_PROJECT_ID || undefined;
+  const discovered = envProjectId
+    ? undefined
+    : discoverProjectIdFromCwd();
+
+  configLogger.info(
+    {
+      envProjectId: envProjectId ?? null,
+      discoveredProjectId: discovered?.projectId ?? null,
+      markerPath: discovered?.markerPath ?? null,
+      source: envProjectId ? 'env' : discovered ? 'marker' : 'none',
+    },
+    'loadAdapterConfig: project id resolution',
+  );
+
   return {
     transport: rawTransport,
     coreUrl: env.WORKJOURNAL_CORE_URL || 'http://127.0.0.1:3737',
+    ...(envProjectId ? { projectId: envProjectId } : {}),
+    ...(discovered ? { projectId: discovered.projectId, markerPath: discovered.markerPath } : {}),
     httpHost,
     httpPort,
     allowedHosts: splitList(env.MCP_ALLOWED_HOSTS) ?? [

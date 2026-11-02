@@ -26,6 +26,7 @@ import {
   reportVerificationSchema,
   reportToolCallSchema,
   projectIdFromAgentId,
+  ValidationError,
   type IngestEnvelopeInput,
 } from '@workjournal/shared';
 import { callCore } from '../client.js';
@@ -48,7 +49,7 @@ const errorMessage = (err: unknown): string =>
  * `@workjournal/shared`, so the tools cannot drift from the HTTP contract, and no
  * business logic lives here.
  */
-export function registerTools(server: McpServer, coreUrl: string) {
+export function registerTools(server: McpServer, coreUrl: string, projectId?: string) {
   const tool = (
     name: string,
     description: string,
@@ -64,6 +65,20 @@ export function registerTools(server: McpServer, coreUrl: string) {
     });
 
   const query = (params: Record<string, unknown>) => buildQueryString(params);
+
+  /**
+   * When the adapter discovered a project id from the `.workjournal/project.json`
+   * marker walked up from cwd, inject it into project-scoped calls so the agent
+   * never has to pass `project_id` by hand for list/create/etc. An explicit
+   * `project_id` in the call always wins over the discovered one.
+   */
+  const withDiscoveredProject = (args: any): any => {
+    if (!projectId) return args;
+    if (args && args.project_id !== undefined && args.project_id !== null && args.project_id !== '') {
+      return args;
+    }
+    return { ...args, project_id: projectId };
+  };
 
   /**
    * Agent-reporting tools (plan §3.5, WS-2.6) post ONE canonical ledger
@@ -103,7 +118,15 @@ export function registerTools(server: McpServer, coreUrl: string) {
     'create_task',
     'Create a task in a project. Requires your agent_id (format <agent-string>_<project-id>), an objective-free title, and a fresh idempotency_key (reuse a key only to retry the identical call).',
     createTaskSchema.shape,
-    (args) => callCore(coreUrl, 'POST', '/api/tasks', args),
+    (args) => {
+      const resolved = withDiscoveredProject(args);
+      if (!resolved.project_id) {
+        throw new ValidationError(
+          'project_id is required — pass it explicitly or initialize a project in this folder so it can be discovered.',
+        );
+      }
+      return callCore(coreUrl, 'POST', '/api/tasks', resolved);
+    },
   );
 
   tool(
@@ -117,7 +140,7 @@ export function registerTools(server: McpServer, coreUrl: string) {
     'list_tasks',
     'List tasks in a project, optionally filtered by status and priority, with limit/offset paging (newest first).',
     listTasksQuerySchema.shape,
-    (args) => callCore(coreUrl, 'GET', `/api/tasks${query(args)}`),
+    (args) => callCore(coreUrl, 'GET', `/api/tasks${query(withDiscoveredProject(args))}`),
   );
 
   tool(

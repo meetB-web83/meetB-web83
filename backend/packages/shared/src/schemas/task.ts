@@ -6,7 +6,14 @@ import { idempotencyKeySchema } from './idempotency.js';
 export const agentIdSchema = z.string().min(1).max(200);
 
 export const createTaskSchema = z.object({
-  project_id: z.string().min(1),
+  /**
+   * Project id. Optional in the MCP input schema so the adapter can auto-inject
+   * the discovered project id from the .workjournal marker before forwarding to
+   * Core. Core enforces presence server-side via the shared schema validation on
+   * the POST /api/tasks route — an omitted project_id after adapter injection
+   * results in a 400.
+   */
+  project_id: z.string().optional(),
   agent_id: agentIdSchema,
   title: z.string().min(1).max(500),
   objective: z.string().max(5000).optional(),

@@ -11,7 +11,13 @@ export interface PromptRow {
   enabled?: boolean;
 }
 
-const promptsLogger = createLogger({ component: 'mcp-adapter', module: 'prompts-registry' });
+let _promptsLogger: ReturnType<typeof createLogger> | null = null;
+const promptsLogger = new Proxy({} as ReturnType<typeof createLogger>, {
+  get(_, prop: string) {
+    if (!_promptsLogger) _promptsLogger = createLogger({ component: 'mcp-adapter', module: 'prompts-registry' });
+    return Reflect.get(_promptsLogger, prop);
+  },
+}) as ReturnType<typeof createLogger>;
 
 /**
  * Prompts currently registered on each McpServer, keyed by server then by name.

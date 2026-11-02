@@ -3,9 +3,8 @@ import { resolve } from 'node:path';
 import { workjournalHome } from '../utils/home.js';
 import { createLogger } from '@workjournal/shared';
 
-const stopLogger = createLogger({ component: 'cli', command: 'stop' });
-
 export async function stopCommand() {
+  const stopLogger = createLogger({ component: 'cli', command: 'stop' });
   const homeDir = workjournalHome();
   const pidFile = resolve(homeDir, 'service.pid');
 

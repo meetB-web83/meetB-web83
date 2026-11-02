@@ -3,8 +3,6 @@ import { readPidFile } from '../utils/pid-file.js';
 import { workjournalHome } from '../utils/home.js';
 import { createLogger } from '@workjournal/shared';
 
-const statusLogger = createLogger({ component: 'cli', command: 'status' });
-
 /**
  * `workjournal status` — reachability AND the current PID (monitoring aid).
  *
@@ -36,6 +34,7 @@ function localPid(home: string): number | null {
 }
 
 export async function statusCommand(): Promise<void> {
+  const statusLogger = createLogger({ component: 'cli', command: 'status' });
   const config = loadConfig();
   const url = `http://${config.host}:${config.port}`;
   const home = workjournalHome();

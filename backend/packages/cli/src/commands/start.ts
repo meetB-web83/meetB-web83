@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { loadConfig } from '@workjournal/core';
+import { loadConfig, normalizeRootPath } from '@workjournal/core';
 import {
   createDatabase,
   runMigrations,
@@ -17,8 +18,6 @@ import {
 import { createLogger, getPinoConfig } from '@workjournal/shared';
 import { removePidFile, writePidFile } from '../utils/pid-file.js';
 import { workjournalHome } from '../utils/home.js';
-
-const startLogger = createLogger({ component: 'cli', command: 'start' });
 
 export interface StartOptions {
   /** Serve the dashboard from embedded assets on the same origin as the API. */
@@ -47,6 +46,7 @@ function openBrowser(url: string): void {
 }
 
 export async function startCommand(options: StartOptions = {}): Promise<void> {
+  const startLogger = createLogger({ component: 'cli', command: 'start' });
   startLogger.info({ withUi: !!options.withUi, uiDir: options.uiDir || null }, 'start command invoked');
   const config = loadConfig();
   const homeDir = workjournalHome();
@@ -57,6 +57,38 @@ export async function startCommand(options: StartOptions = {}): Promise<void> {
 
   startLogger.info({ dbPath }, 'running registry migrations');
   runMigrations(db, registryMigrationsSource());
+
+  // Best-effort: write .workjournal/project.json for the current cwd so MCP
+  // agents can discover the project id by walking up from cwd (like .git).
+  // Never fail start because of this.
+  try {
+    const rowResult: any = db.raw
+      .prepare(
+        'SELECT id, name, root_path FROM registry_projects WHERE root_path = ? OR root_path = ? OR root_path = ?',
+      )
+      .get(process.cwd(), resolve(process.cwd()), normalizeRootPath(process.cwd()));
+    const row: { id: string; name: string; root_path: string } | undefined = rowResult;
+    if (row) {
+      const workjournalDir = resolve(process.cwd(), '.workjournal');
+      mkdirSync(workjournalDir, { recursive: true });
+      const marker = {
+        projectId: row.id,
+        projectName: row.name,
+        rootPath: row.root_path,
+        updatedAt: new Date().toISOString(),
+      };
+      writeFileSync(
+        resolve(workjournalDir, '.workjournal/project.json'),
+        JSON.stringify(marker, null, 2) + '\n',
+      );
+      startLogger.info({ cwd: process.cwd(), projectId: row.id }, 'start: project marker refreshed');
+    }
+  } catch (err) {
+    startLogger.warn(
+      { cwd: process.cwd(), error: String(err) },
+      'start: could not refresh project marker (non-fatal)',
+    );
+  }
 
   let ui: UiAssets | null = null;
   if (options.uiDir) {

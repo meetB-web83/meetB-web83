@@ -2,9 +2,8 @@ import { loadConfig, createDatabase, createBackup } from '@workjournal/core';
 import { resolve } from 'node:path';
 import { createLogger } from '@workjournal/shared';
 
-const backupLogger = createLogger({ component: 'cli', command: 'backup' });
-
 export async function backupCommand() {
+  const backupLogger = createLogger({ component: 'cli', command: 'backup' });
   const config = loadConfig();
   const dbPath = resolve(config.workjournalHome, 'registry.db');
 

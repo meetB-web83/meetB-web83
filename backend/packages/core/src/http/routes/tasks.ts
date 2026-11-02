@@ -21,6 +21,9 @@ import { DashboardService } from '../../domain/dashboard-service.js';
 export async function registerTaskRoutes(server: FastifyInstance) {
   server.post('/', { preHandler: [validateBody(createTaskSchema)] }, async (request, reply) => {
     const input = request.body as CreateTaskInput;
+    if (!input.project_id) {
+      throw new ValidationError('project_id is required');
+    }
     const db = server.projectDbs.forProject(input.project_id);
     const task = await buildServices(db).tasks.createTask({
       projectId: input.project_id,

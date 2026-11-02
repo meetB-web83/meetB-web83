@@ -5,6 +5,7 @@ import { statusCommand } from './commands/status.js';
 import { backupCommand } from './commands/backup.js';
 import { mcpCommand } from './commands/mcp.js';
 import { setupCommand } from './integrations/setup.js';
+import { initCommand } from './commands/init.js';
 
 /** Single source of truth for the CLI version (`--version`, SEA executable). */
 export const CLI_VERSION = '0.1.0';
@@ -31,6 +32,12 @@ export function createCliProgram(): Command {
     .option('--ui-dir <path>', 'Serve the dashboard from a built Vite dist directory')
     .option('--open', 'Open the dashboard in the default browser (implies --with-ui)')
     .action(startCommand);
+  program
+    .command('init')
+    .description('Initialize a project: register it and write .workjournal/project.json')
+    .argument('[name]', 'Project name (defaults to folder name)')
+    .option('--root <path>', 'Project root folder (defaults to the current directory)')
+    .action((name, options) => initCommand({ name, root: options.root }));
   program.command('stop').description('Stop the core service').action(stopCommand);
   program.command('status').description('Check core service status').action(statusCommand);
   program.command('backup').description('Create a manual backup').action(backupCommand);
