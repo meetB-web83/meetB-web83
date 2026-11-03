@@ -547,3 +547,17 @@ The post-MVP plan (§1 "Existing Architecture & Behavior") cites "decision D-011
 
 **Status.** Implemented 2026-10-30; typecheck, lint, and new tests green. Pre-existing test failures in `mcp-autostart`, `mcp-stdio`, `cli-status`, `mcp-http` (CLI dist not built) are unchanged.
 
+## D-031 — Cursor integration: MCP stdio only, no lifecycle plugin (2026-11-02)
+
+**Decision.** Cursor is added as a third agent integration (`cursorIntegration`) behind `workjournal setup`, registered in `AGENT_INTEGRATIONS` alongside OpenCode and Cline. Cursor's integration surface is MCP stdio servers only — Cursor exposes **no lifecycle plugin API** (no `setup(ctx)` / `ctx.event.subscribe` surface like OpenCode/Cline), so there is no plugin.generated.ts, no plugin artifacts, and no `lifecyclePlugin` capability. Setup writes a single MCP entry to `~/.cursor/mcp.json` (global) or `./.cursor/mcp.json` (project):
+
+```
+mcpServers.workjournal = { type: "stdio", command: "<workjournal>", args: ["mcp", "--with-ui"] }
+```
+
+Detection uses `resolveCommandPath('cursor-agent')`; discovery reports `not_installed` / `installed_not_configured` / `configured` / `configuration_error`. The adapter reuses `safe-config.ts` (JSONC minimal-edit via `jsonc-parser`, backup + atomic write, rollback on post-write validation failure) and `command.ts` (`workjournalMcpCommand`, `isWorkjournalCommand`), so the entry matches the exact executable the adapter uses. Config scope follows the same global/project model as OpenCode/Cline; `--project` edits `<cwd>/.cursor/mcp.json` and does not install plugin artifacts (none exist). Uninstall removes only the `mcpServers.workjournal` entry (and prunes an empty `mcpServers`), leaving unrelated servers and keys intact.
+
+**Reason.** Per the Cursor docs (cursor.com/docs/mcp, fetched 2026-11-02), Cursor reads `mcpServers` from `~/.cursor/mcp.json` / `./.cursor/mcp.json` with a stdio schema (`type`, `command`, `args`, `env`). The binary is `cursor-agent` (CLI) / Cursor IDE. There is no Cursor lifecycle-plugin or hooks API equivalent to OpenCode V2's `ctx.event.subscribe` or Cline's `AgentExtension`, so the integration is intentionally MCP-only: it makes WorkJournal available as an MCP server inside Cursor, but does not observe Cursor session lifecycle or emit per-tool activity events. A future WS-9 addition could add Cursor-specific session observation if Cursor ships a plugin/hooks API.
+
+**Status.** Implemented 2026-11-02; `packages/cli` typecheck and lint clean; `tests/integration/agent-integration.test.ts` 24/24 green (6 new cursor tests).
+

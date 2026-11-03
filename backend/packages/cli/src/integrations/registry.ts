@@ -12,11 +12,13 @@
 import type { AgentIntegration } from './types.js';
 import { opencodeIntegration } from './adapters/opencode/index.js';
 import { clineIntegration } from './adapters/cline/index.js';
+import { cursorIntegration } from './adapters/cursor/index.js';
 
 /** Frozen registry — order determines setup presentation. */
 export const AGENT_INTEGRATIONS: readonly AgentIntegration[] = Object.freeze([
   opencodeIntegration,
   clineIntegration,
+  cursorIntegration,
 ]);
 
 export function findIntegration(id: string): AgentIntegration | undefined {

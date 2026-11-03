@@ -15,6 +15,7 @@
     "typecheck": "pnpm -r typecheck && tsc -p scripts/tsconfig.json",
     "start": "pnpm --filter @workjournal/cli start",
     "mcp": "pnpm --filter @workjournal/mcp-adapter start",
+    "mcp:inspect": "npx @modelcontextprotocol/inspector pnpm --filter @workjournal/mcp-adapter start",
     "deploy:local": "./deploy-workjournal.sh"
   },
   "devDependencies": {

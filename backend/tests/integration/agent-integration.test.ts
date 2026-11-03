@@ -14,8 +14,10 @@ import { delimiter, join } from 'node:path';
 import type { SetupContext } from '../../packages/cli/src/integrations/types.js';
 import { opencodeIntegration } from '../../packages/cli/src/integrations/adapters/opencode/index.js';
 import { clineIntegration } from '../../packages/cli/src/integrations/adapters/cline/index.js';
+import { cursorIntegration } from '../../packages/cli/src/integrations/adapters/cursor/index.js';
 import { resolveOpencodePaths } from '../../packages/cli/src/integrations/adapters/opencode/discovery.js';
 import { resolveClinePaths } from '../../packages/cli/src/integrations/adapters/cline/discovery.js';
+import { resolveCursorPaths } from '../../packages/cli/src/integrations/adapters/cursor/discovery.js';
 import { clinePluginVersion } from '../../packages/cli/src/integrations/adapters/cline/plugin.generated.js';
 import { opencodePluginVersion } from '../../packages/cli/src/integrations/adapters/opencode/plugin.generated.js';
 import { parseJsonc } from '../../packages/cli/src/integrations/safe-config.js';
@@ -346,6 +348,93 @@ describe('cline integration', () => {
   });
 });
 
+describe('cursor integration', () => {
+  it('writes mcpServers.workjournal as a stdio entry', async () => {
+    await fakeBinary('cursor-agent');
+    const context = ctx({ agentId: 'cursor' });
+
+    const plan = await cursorIntegration.plan(context);
+    expect(plan.error).toBeUndefined();
+    const result = await cursorIntegration.apply(plan, context);
+    expect(result.success).toBe(true);
+
+    const paths = resolveCursorPaths(context);
+    const settings = JSON.parse(await readFile(paths.settingsPath, 'utf8'));
+    expect(settings.mcpServers.workjournal).toEqual({
+      type: 'stdio',
+      command: COMMAND[0],
+      args: COMMAND.slice(1),
+    });
+
+    const validation = await cursorIntegration.validate(context);
+    expect(validation.valid).toBe(true);
+  });
+
+  it('is idempotent — a second plan is all noop', async () => {
+    await fakeBinary('cursor-agent');
+    const context = ctx({ agentId: 'cursor' });
+    const first = await cursorIntegration.plan(context);
+    expect((await cursorIntegration.apply(first, context)).success).toBe(true);
+
+    const second = await cursorIntegration.plan(context);
+    expect(second.files.every((file) => file.action === 'noop')).toBe(true);
+    expect((await cursorIntegration.apply(second, context)).filesModified).toEqual([]);
+  });
+
+  it('refuses to clobber a different command unless forced', async () => {
+    await fakeBinary('cursor-agent');
+    const context = ctx({ agentId: 'cursor' });
+    const paths = resolveCursorPaths(context);
+    await mkdir(join(home, '.cursor'), { recursive: true });
+    await writeFile(
+      paths.settingsPath,
+      JSON.stringify({ mcpServers: { workjournal: { command: 'node', args: ['other.js'] } } }),
+      'utf8',
+    );
+
+    const refused = await cursorIntegration.plan(context);
+    expect(refused.error).toMatch(/--force/);
+    expect((await cursorIntegration.apply(refused, context)).success).toBe(false);
+
+    const forced = await cursorIntegration.plan(ctx({ agentId: 'cursor', force: true }));
+    expect((await cursorIntegration.apply(forced, context)).success).toBe(true);
+  });
+
+  it('supports project scope paths', async () => {
+    await fakeBinary('cursor-agent');
+    const context = ctx({ agentId: 'cursor', scope: 'project' });
+    const paths = resolveCursorPaths(context);
+    expect(paths.settingsPath).toBe(join(cwd, '.cursor', 'mcp.json'));
+
+    const plan = await cursorIntegration.plan(context);
+    expect((await cursorIntegration.apply(plan, context)).success).toBe(true);
+    const settings = JSON.parse(await readFile(paths.settingsPath, 'utf8'));
+    expect(settings.mcpServers.workjournal.command).toEqual(COMMAND[0]);
+  });
+
+  it('uninstalls only the managed entry', async () => {
+    await fakeBinary('cursor-agent');
+    const context = ctx({ agentId: 'cursor' });
+    const paths = resolveCursorPaths(context);
+    await mkdir(join(home, '.cursor'), { recursive: true });
+    await writeFile(
+      paths.settingsPath,
+      JSON.stringify({ theme: 'dark', mcpServers: { other: { command: 'x' } } }, null, 2),
+      'utf8',
+    );
+    const plan = await cursorIntegration.plan(context);
+    expect((await cursorIntegration.apply(plan, context)).success).toBe(true);
+
+    const result = await cursorIntegration.uninstall(context);
+    expect(result.success).toBe(true);
+    expect(result.filesModified).toContain(paths.settingsPath);
+    const settings = JSON.parse(await readFile(paths.settingsPath, 'utf8'));
+    expect(settings.mcpServers.workjournal).toBeUndefined();
+    expect(settings.mcpServers.other).toEqual({ command: 'x' });
+    expect(settings.theme).toBe('dark');
+  });
+});
+
 describe('discovery', () => {
   it('reports not_installed when the binary is absent', async () => {
     process.env.PATH = binDir;
@@ -373,5 +462,21 @@ describe('discovery', () => {
     const result = await clineIntegration.discover(context);
     expect(result.state).toBe('configuration_error');
     expect(result.parseError?.file).toBe(paths.settingsPath);
+  });
+
+  it('reports not_installed for cursor when cursor-agent is absent', async () => {
+    process.env.PATH = binDir;
+    const result = await cursorIntegration.discover(ctx({ agentId: 'cursor' }));
+    expect(result.state).toBe('not_installed');
+  });
+
+  it('reports installed_not_configured before setup and configured after for cursor', async () => {
+    await fakeBinary('cursor-agent');
+    const context = ctx({ agentId: 'cursor' });
+    expect((await cursorIntegration.discover(context)).state).toBe('installed_not_configured');
+
+    const plan = await cursorIntegration.plan(context);
+    await cursorIntegration.apply(plan, context);
+    expect((await cursorIntegration.discover(context)).state).toBe('configured');
   });
 });
