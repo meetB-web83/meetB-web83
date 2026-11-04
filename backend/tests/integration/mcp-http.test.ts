@@ -40,6 +40,7 @@ const EXPECTED_TOOLS = [
   'report_interruption',
   'report_progress_milestone',
   'report_timeout',
+  'report_tool_call',
   'report_verification',
   'start_agent_session',
   'supersede_decision',
@@ -114,7 +115,7 @@ describe('MCP over Streamable HTTP', () => {
     corePort = (core.server.address() as AddressInfo).port;
 
     adapterConfig = {
-      ...loadAdapterConfig({} as NodeJS.ProcessEnv),
+      ...loadAdapterConfig({ WORKJOURNAL_TOOLS: 'full' } as NodeJS.ProcessEnv),
       transport: 'http',
       coreUrl: coreUrl(),
     };

@@ -6,12 +6,14 @@ import {
   releaseTaskSchema,
   transitionTaskSchema,
   listTasksQuerySchema,
+  taskCountsQuerySchema,
   CreateTaskInput,
   UpdateTaskInput,
   ClaimTaskInput,
   ReleaseTaskInput,
   TransitionTaskInput,
   ListTasksQuery,
+  TaskCountsQuery,
   ValidationError,
 } from '@workjournal/shared';
 import { validateBody, validateQuery, operationInput } from '../hooks/validation.js';
@@ -62,6 +64,24 @@ export async function registerTaskRoutes(server: FastifyInstance) {
       offset: query.offset,
       agentCall,
     });
+  });
+
+  server.get('/counts', { preHandler: [validateQuery(taskCountsQuerySchema)] }, async (request) => {
+    const query = request.query as TaskCountsQuery & { agentCall?: boolean };
+    const db = server.projectDbs.forProject(query.project_id);
+    const rows = db.raw
+      .prepare('SELECT status, COUNT(*) AS n FROM tasks GROUP BY status')
+      .all() as Array<{ status: string; n: number }>;
+    const counts: Record<string, number> = {};
+    for (const row of rows) {
+      counts[row.status] = row.n;
+    }
+    // Ensure all statuses are present with 0 if missing
+    const allStatuses = ['open', 'in_progress', 'blocked', 'interrupted', 'completed', 'cancelled'];
+    for (const status of allStatuses) {
+      if (counts[status] === undefined) counts[status] = 0;
+    }
+    return counts;
   });
 
   server.get('/:id', async (request) => {

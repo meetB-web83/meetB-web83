@@ -103,7 +103,7 @@ global (unknown id → 404, unavailable folder → 404 with the actionable messa
 The default task list limit drops from 100 to 25 (max 500 unchanged). Frontend paging
 uses limit+1 (request 26, show 25, 26th row means "next") — no total counts, no
 jump-to-page — so the list envelope and MCP contract stay untouched. Projects and
-decisions stay unpaginated (agreed: tiny tables).
+decision stay unpaginated (agreed: tiny tables).
 
 **Reason.** The home page previously derived stats client-side from a capped fetch, so
 both stats and recents would silently go stale past 100 tasks. Server-side `GROUP BY`
@@ -374,11 +374,11 @@ a live process — otherwise the line says `(pid: unknown)`, so a stale file
 never makes the log lie. Implemented in `mcp-adapter/src/autostart.ts`
 (`ensureCore`'s healthy branch + `describeLocalPid`).
 
-Requested by meetb (2026-10-21) as a monitoring aid, after he asked whether
-`status` shows the PID (it didn't — it was a bare HTTP probe that never
-opened the file). CLI-only: `packages/cli/src/commands/status.ts` uses the
-existing `readPidFile`/`workjournalHome()` helpers; no core/DB involvement
-and `stop` is unchanged. Tests: `tests/integration/cli-status.test.ts`
+**Reason.** Requested by meetb (2026-10-21) as a monitoring aid, after he
+asked whether `status` shows the PID (it didn't — it was a bare HTTP probe
+that never opened the file). CLI-only: `packages/cli/src/commands/status.ts`
+uses the existing `readPidFile`/`workjournalHome()` helpers; no core/DB
+involvement and `stop` is unchanged. Tests: `tests/integration/cli-status.test.ts`
 (5 cases — pid on the running line, stale-while-running,
 pid-unknown-while-running, stale-while-down, alive-but-unreachable) plus the
 attach-log assertions in `mcp-autostart.test.ts` §3 (pid on attach,
@@ -399,7 +399,11 @@ clean.
 
 ## D-017 — Canonical event envelope with source + category (2026-10-23)
 
-**Decision.** Introduce a stable envelope: `event_id`, `occurred_at` (UTC), `source` (`core` | `mcp_tool` | `agent:<agent-id>`), `category`, `type`, `project_id`, `task_id` (nullable), `actor`, `payload` (validated per type), `sequence`. Agent-reported events are recorded as ledger events — they never perform an authoritative task transition. Low-level tool-call logging is opt-in.
+**Decision.** Introduce a stable envelope: `event_id`, `occurred_at` (UTC), `source`
+(`core` | `mcp_tool` | `agent:<agent-id>`), `category`, `type`, `project_id`,
+`task_id` (nullable), `actor`, `payload` (validated per type), `sequence`.
+Agent-reported events are recorded as ledger events — they never perform an
+authoritative task transition. Low-level tool-call logging is opt-in.
 
 **Reason.** Unifies the task and agent ledgers with nullable `task_id` for project-level agent events; `source`/`category` give authority badges for the unified timeline; keeping task transitions inside the single transition function protects the D-001..D-004 invariants (WS-2, WS-5).
 
@@ -441,7 +445,7 @@ clean.
 
 **Decision.** The lifecycle plugin is a small self-contained JS module authored in the repo, embedded into the SEA executable at build time (same generated-embed pattern as migrations and dashboard UI) and written to `~/.workjournal/integrations/opencode/plugin/` by `workjournal setup`. It default-exports `{ id, setup(ctx) }`; OpenCode V2 reads `id`/`setup` off the export, so no `@opencode/plugin` runtime dependency is needed in the extracted location (embedded `Plugin.define` shim as fallback). It observes only reliably observable signals (session lifecycle, interruption, idle, errors) via `ctx.event.subscribe()` and optional tool hooks, and POSTs canonical envelopes to Core `POST /api/ingest/events`. Delivery uses a bounded queue in `ctx.storage` with backoff when Core is down; the plugin never autostarts Core. Low-level tool-call logging is opt-in via plugin options, default off; idle/errors/interruption are signals, never proof of task completion.
 
-**Reason.** Embed+extract keeps the plugin self-contained with no runtime dependency; ledger-only ingestion plus the transition-function boundary guarantees plugin events cannot mutate task status (WS-9).
+**Reason.** Embed+extract keeps the plugin self-contained with no runtime dependency; ledger-only ingestion plus the transition-function boundary guarantees plugin events cannot mutate task state (WS-9).
 
 **Status.** Approved via post-MVP plan (§2, §10.5, 2026-10-23). The "tool-call logging default off" clause is superseded by D-027 (2026-10-27) for Cline.
 
@@ -522,6 +526,7 @@ Separately, `packages/core/scripts/write-generated.ts` now backs both embed scri
 The post-MVP plan (§1 "Existing Architecture & Behavior") cites "decision D-011" for SEA-embedded migrations/committed embed files. In `docs/decisions.md` that content is recorded as **D-012** (SEA single executable, 2026-10-19); **D-011** is the `PROJECTS_DIRECTORY`/Docker path-mapping decision. The discrepancy was carried into WS-1.2's task context but, per WS-1.2 constraints, the plan document itself was not edited; this note records it for a future plan-doc cleanup pass. All other plan decision citations (D-013..D-015 autostart/PID, D-020..D-023) match `docs/decisions.md`.
 
 ## D-029 — Prompts dashboard UI: shared panel, scope implied by host (2026-10-29)
+
 **Decision.** Reworked the prompts UI around the existing task-page card style:
 
 - **`components/prompts/PromptCard`** mirrors `components/tasks/TaskCard`: `div.task-card` root, graph-paper `task-card-header` (name + badges + toggle pinned right), `task-card-body` (description + clamped mono template), `task-card-footer` (version/category meta + Preview/Edit/Delete). Card click opens the edit dialog; controls stop propagation so ON/OFF never opens the editor.
@@ -561,3 +566,20 @@ Detection uses `resolveCommandPath('cursor-agent')`; discovery reports `not_inst
 
 **Status.** Implemented 2026-11-02; `packages/cli` typecheck and lint clean; `tests/integration/agent-integration.test.ts` 24/24 green (6 new cursor tests).
 
+---
+
+## D-032 — Core profile is the default agent-facing MCP surface (2026-11-03)
+
+**Decision.** The default MCP tool surface exposed by the adapter (`WORKJOURNAL_TOOLS=core`, env default) is a new 6-tool agent-centric profile: `start_session`, `create_task`, `update_task`, `checkpoint`, `record_decision`, `get_resume_context`. The existing 17-tool MVP spec surface and 9 ledger tools remain available under `WORKJOURNAL_TOOLS=full` and `WORKJOURNAL_TOOLS=core+ledger` respectively. This deliberately departs from scope section 11 for the default surface. Authorized by meetb in-session.
+
+**Reason.** The consumer of the MCP surface is an LLM coding agent reading `tools/list` cold with no human explanation. The 26-tool surface (~8,846 tokens) fails the token budget (1,500 target) and discoverability requirements. The core profile removes all infrastructure params (`idempotency_key`, `agent_id`, `project_id`, `task_id` where inferrable) from the model's view, adds session state in the adapter to track the current task, derives idempotency keys deterministically, and returns compact responses with `next_actions`. The `full` profile is byte-identical to the current surface for backward compatibility; the repo's own `opencode.json` pins `WORKJOURNAL_TOOLS=full` so current dev agents are unaffected.
+
+**Status.** Spec in progress at `docs/specs/M15-agent-surface.md`; implementation starts after spec approval.
+
+---
+
+## D-033 — list_tasks added as 7th core tool; counts endpoint added (2026-11-04)
+
+**Decision.** The core profile gains a 7th tool: `list_tasks(status?, priority?, limit?)`. It is read-only (`readOnlyHint: true`), uses the same project resolution as other tools (no project parameter), and calls the existing `GET /api/tasks` (filtered) plus a new `GET /api/tasks/counts` endpoint for the status summary. Default behavior: actionable tasks only (`open`, `interrupted`, `in_progress`), ordered by relevance (this agent's `in_progress` first, then `interrupted`, then `open` by priority high→low). Default limit 10, max 25. Response: one-line count summary (e.g., "3 open, 1 in_progress, 1 interrupted, 12 completed"), one compact line per task (id, short title, status, priority, owner), "N more" when truncated, plus ≤2 next_actions. The `start_session` tool is updated to focus only on this agent's `in_progress` tasks, the resume brief for `task_id`, and a count summary — it no longer lists open/interrupted tasks (list_tasks does that). Tool descriptions clarify: browse → list_tasks, begin/resume → start_session.
+
+**Reason.** The addendum (meetb decision) explicitly requires: 7 tools in core profile, list_tasks with the specified behavior, and a counts endpoint for the summary. The new endpoint is a read-only core addition, recorded here. The split of responsibilities (browse vs. begin) removes overlap and gives agents a clear mental model.

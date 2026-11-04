@@ -133,7 +133,7 @@ export function createMcpHttpServer(config: AdapterConfig): Server {
         { component: 'mcp-adapter', module: 'http-server', action: 'initialize' },
         'new MCP session initializing',
       );
-      const mcp = await createMcpServer(config.coreUrl, config.projectId);
+      const mcp = await createMcpServer(config.coreUrl, config.projectId, config.toolProfile);
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (id) => {

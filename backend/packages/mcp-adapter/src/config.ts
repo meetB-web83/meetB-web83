@@ -50,9 +50,13 @@ export function discoverProjectIdFromCwd(startDir: string = process.cwd()):
   }
 }
 
+export type ToolProfile = 'core' | 'full' | 'core+ledger';
+
 export interface AdapterConfig {
   /** Which transport to run: 'stdio' (default, native dev) or 'http' (Docker / remote clients). */
   transport: 'stdio' | 'http';
+  /** Tool profile: 'core' (6 workflow tools), 'full' (17 spec tools), 'core+ledger' (core + 9 ledger tools). */
+  toolProfile: ToolProfile;
   /** Project id discovered from a `.workjournal/project.json` marker walked up
    *  from cwd (undefined when no marker is found). */
   projectId?: string;
@@ -135,6 +139,16 @@ export function loadAdapterConfig(env: NodeJS.ProcessEnv = process.env): Adapter
 
   const httpHost = env.MCP_HTTP_HOST || '127.0.0.1';
 
+  // Tool profile: WORKJOURNAL_TOOLS=core|full|core+ledger (default: core)
+  const rawProfile = (env.WORKJOURNAL_TOOLS || 'core').toLowerCase();
+  const validProfiles: ToolProfile[] = ['core', 'full', 'core+ledger'];
+  if (!validProfiles.includes(rawProfile as ToolProfile)) {
+    throw new Error(
+      `WORKJOURNAL_TOOLS must be "core", "full", or "core+ledger" (got "${env.WORKJOURNAL_TOOLS}").`,
+    );
+  }
+  const toolProfile = rawProfile as ToolProfile;
+
   // Project id: explicit env wins; otherwise walk up from cwd for the marker.
   const envProjectId = env.WORKJOURNAL_PROJECT_ID || undefined;
   const discovered = envProjectId
@@ -147,12 +161,14 @@ export function loadAdapterConfig(env: NodeJS.ProcessEnv = process.env): Adapter
       discoveredProjectId: discovered?.projectId ?? null,
       markerPath: discovered?.markerPath ?? null,
       source: envProjectId ? 'env' : discovered ? 'marker' : 'none',
+      toolProfile,
     },
     'loadAdapterConfig: project id resolution',
   );
 
   return {
     transport: rawTransport,
+    toolProfile,
     coreUrl: env.WORKJOURNAL_CORE_URL || 'http://127.0.0.1:3737',
     ...(envProjectId ? { projectId: envProjectId } : {}),
     ...(discovered ? { projectId: discovered.projectId, markerPath: discovered.markerPath } : {}),

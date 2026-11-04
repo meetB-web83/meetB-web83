@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerTools } from './tools/register.js';
 import { syncPrompts } from './prompts/registry.js';
+import { ToolProfile } from './config.js';
 import { createLogger, LOG_FILE } from '@workjournal/shared';
 
 let _mcpLogger: ReturnType<typeof createLogger> | null = null;
@@ -12,6 +13,28 @@ const mcpLogger = new Proxy({} as ReturnType<typeof createLogger>, {
     return Reflect.get(_mcpLogger, prop);
   },
 }) as ReturnType<typeof createLogger>;
+
+/**
+ * MCP server instructions sent to every client (stdio and Streamable HTTP)
+ * in the initialize result. Plain text, no markdown tables or code fences.
+ * Owns only the order of steps and the rules between tools — parameter
+ * documentation lives in each tool's inputSchema description.
+ * Every tool name and parameter name mentioned here must exist in the
+ * registered core-tool schemas.
+ */
+export const MCP_SERVER_INSTRUCTIONS = `WorkJournal keeps task progress across agent sessions so another agent can continue without the original conversation. Use it for any multi-step coding work, before you edit files.
+
+Flow:
+1. Start: call start_session. To browse tasks, call list_tasks. If a task for this work is in_progress or interrupted, resume it with start_session(task_id, claim=true); the brief shows where it stopped.
+2. New work: create_task with a clear objective and acceptance criteria, then update_task(status="in_progress") to claim it before editing anything. create_task does not claim by itself. If you already have several tasks planned, call create_task for each one up front so you don't need to keep track of what to do next.
+3. While working: after each meaningful step (a feature works, a bug is diagnosed, tests pass) call checkpoint with done, findings, issues and next_steps.
+4. Choices others must follow: record_decision with the rationale. To replace an earlier one, pass supersedes.
+5. Scope changes or new acceptance criteria: update_task with the new objective or criteria.
+6. Before you stop, or if you are stuck: checkpoint first, then update_task with status="blocked" or "interrupted" and a reason.
+7. When the acceptance criteria are met: update_task(status="completed").
+8. After your context is compacted or you lose track: get_resume_context.
+
+Rules: one task at a time; never edit files for a task you have not claimed; never invent ids, use the ones returned; if a call fails, the error says how to fix it.`;
 
 /**
  * Single place where the MCP server is created and tools are registered, so
@@ -28,36 +51,40 @@ const mcpLogger = new Proxy({} as ReturnType<typeof createLogger>, {
 export async function createMcpServer(
   coreUrl: string,
   projectId?: string,
+  toolProfile: ToolProfile = 'core',
 ): Promise<McpServer> {
-  mcpLogger.info({ coreUrl, logFile: LOG_FILE, projectId: projectId ?? null }, 'creating MCP server');
-  const server = new McpServer({
-    name: 'workjournal',
-    version: '0.1.0',
-  });
-  registerTools(server, coreUrl, projectId);
+  mcpLogger.info({ coreUrl, logFile: LOG_FILE, projectId: projectId ?? null, toolProfile }, 'creating MCP server');
+  const server = new McpServer(
+    { name: 'workjournal', version: '0.1.0' },
+    { instructions: MCP_SERVER_INSTRUCTIONS },
+  );
+  registerTools(server, coreUrl, projectId, toolProfile);
 
   // The `prompts` capability must be registered BEFORE connect() and BEFORE
   // syncPrompts, because capabilities cannot be added after connect().
   // Later registerPrompt() calls would throw if this is missing.
-  server.server.registerCapabilities({ prompts: { listChanged: true } });
+  // Only register prompts capability for 'full' profile (which includes all built-in prompts).
+  if (toolProfile === 'full') {
+    server.server.registerCapabilities({ prompts: { listChanged: true } });
 
-  try {
-    const registered = await syncPrompts(server, coreUrl, projectId ?? process.env.WORKJOURNAL_PROJECT_ID);
-    mcpLogger.info(
-      {
-        coreUrl,
-        projectId: process.env.WORKJOURNAL_PROJECT_ID || null,
-        promptCount: registered.size,
-      },
-      'prompt registry synced',
-    );
-  } catch (err) {
-    mcpLogger.error({ coreUrl, error: String(err) }, 'failed to sync prompt registry on startup');
+    try {
+      const registered = await syncPrompts(server, coreUrl, projectId ?? process.env.WORKJOURNAL_PROJECT_ID);
+      mcpLogger.info(
+        {
+          coreUrl,
+          projectId: process.env.WORKJOURNAL_PROJECT_ID || null,
+          promptCount: registered.size,
+        },
+        'prompt registry synced',
+      );
+    } catch (err) {
+      mcpLogger.error({ coreUrl, error: String(err) }, 'failed to sync prompt registry on startup');
+    }
+
+    // Subscribe to prompt change notifications via SSE.
+    // Runs in the background; errors are logged but don't block server startup.
+    void subscribeToPromptChanges(server, coreUrl);
   }
-
-  // Subscribe to prompt change notifications via SSE.
-  // Runs in the background; errors are logged but don't block server startup.
-  void subscribeToPromptChanges(server, coreUrl);
 
   return server;
 }

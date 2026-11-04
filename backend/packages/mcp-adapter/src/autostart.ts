@@ -11,6 +11,7 @@ import { basename, join } from 'node:path';
 import type { AdapterConfig } from './config.js';
 import { createLogger, child } from '@workjournal/shared';
 import { startStdioServer } from './stdio.js';
+import { ToolProfile } from './config.js';
 
 /**
  * Self-starting stdio adapter (decision D-013).
@@ -505,5 +506,5 @@ export async function runStdioAdapter(config: AdapterConfig): Promise<void> {
   );
   await ensureCore(config);
   startHeartbeat(config);
-  await startStdioServer(config.coreUrl, config.projectId);
+  await startStdioServer(config.coreUrl, config.projectId, config.toolProfile);
 }

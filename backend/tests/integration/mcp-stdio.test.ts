@@ -7,6 +7,7 @@ import {
   type Config,
 } from '@workjournal/core';
 import { createRegistryDb } from '../helpers/registry-factory.js';
+import { MCP_SERVER_INSTRUCTIONS } from '../../packages/mcp-adapter/src/server-factory.js';
 
 /**
  * `workjournal mcp` (Phase 1 acceptance): the CLI subcommand runs the MCP
@@ -22,7 +23,7 @@ const CLI_ENTRY = fileURLToPath(new URL('../../packages/cli/dist/index.js', impo
 interface JsonRpcMessage {
   jsonrpc: string;
   id?: number | string;
-  result?: { protocolVersion?: string; serverInfo?: { name?: string }; tools?: unknown[] };
+  result?: { protocolVersion?: string; serverInfo?: { name?: string }; instructions?: string; tools?: unknown[] };
   error?: { code: number; message: string };
 }
 
@@ -98,6 +99,7 @@ describe('workjournal mcp over stdio', () => {
     });
     expect(init.error).toBeUndefined();
     expect(init.result?.serverInfo).toBeDefined();
+    expect(init.result?.instructions).toBe(MCP_SERVER_INSTRUCTIONS);
     notify('notifications/initialized');
   }, 30_000);
 

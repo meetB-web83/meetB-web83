@@ -1,0 +1,252 @@
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z, type ZodRawShape } from 'zod';
+import { projectIdFromAgentId, type IngestEnvelopeInput } from '@workjournal/shared';
+import { callCore } from '../client.js';
+import { buildQueryString } from './query.js';
+
+type Json = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
+
+const asJson = (result: unknown): Json => ({
+  content: [
+    { type: 'text', text: typeof result === 'string' ? result : JSON.stringify(result) },
+  ],
+});
+
+const errorMessage = (err: unknown): string =>
+  err instanceof Error ? err.message : String(err);
+
+export function registerLedgerTools(server: McpServer, coreUrl: string) {
+  const tool = (
+    name: string,
+    description: string,
+    inputSchema: ZodRawShape,
+    handler: (args: any) => Promise<unknown>,
+  ) =>
+    server.registerTool(name, { title: name, description, inputSchema }, async (args: any) => {
+      try {
+        return asJson(await handler(args));
+      } catch (err) {
+        return { ...asJson(errorMessage(err)), isError: true };
+      }
+    });
+
+  const query = (params: Record<string, unknown>) => buildQueryString(params);
+
+  const reportEvent = (type: string | ((args: any) => string), payloadFields: (args: any) => Record<string, unknown>) =>
+    (args: any) => {
+      const project_id = args.project_id ?? projectIdFromAgentId(args.agent_id);
+      if (!project_id) {
+        throw new Error(
+          `Could not determine project_id from agent_id "${args.agent_id}" — pass project_id explicitly.`,
+        );
+      }
+      const envelope: IngestEnvelopeInput = {
+        event_id: args.idempotency_key,
+        type: typeof type === 'function' ? type(args) : type,
+        source: `agent:${args.agent_id}`,
+        actor: args.agent_id,
+        ...(args.task_id ? { task_id: args.task_id } : {}),
+        payload: payloadFields(args),
+      };
+      return callCore(
+        coreUrl,
+        'POST',
+        `/api/ingest/events${query({ project_id })}`,
+        { events: [envelope] },
+      );
+    };
+
+  tool(
+    'get_dashboard',
+    'Dashboard overview: task stats, recent tasks and the project scope list. Pass project_id to scope to one project; omit it for all projects.',
+    {
+      project_id: z.string().min(1).optional(),
+      recent_limit: z.number().int().min(1).max(25).default(6).optional(),
+      agentCall: z.boolean().optional(),
+    },
+    (args) => callCore(coreUrl, 'GET', `/api/dashboard${query({ ...args, agentCall: true })}`),
+  );
+
+  tool(
+    'start_agent_session',
+    'Record the start of an agent session (ledger event, no task transition). Requires your agent_id and session_id plus a fresh idempotency_key.',
+    {
+      agent_id: z.string().min(1).max(200),
+      project_id: z.string().min(1).max(200).optional(),
+      task_id: z.string().min(1).max(200).optional(),
+      idempotency_key: z.string().min(1).max(128).regex(/^[a-zA-Z0-9_-]{1,128}$/),
+      session_id: z.string().min(1).max(200),
+    },
+    reportEvent('agent_session_started', (a) => ({ agent_id: a.agent_id, session_id: a.session_id })),
+  );
+
+  tool(
+    'end_agent_session',
+    'Record the end of an agent session with a completion reason (ledger event, no task transition).',
+    {
+      agent_id: z.string().min(1).max(200),
+      project_id: z.string().min(1).max(200).optional(),
+      task_id: z.string().min(1).max(200).optional(),
+      idempotency_key: z.string().min(1).max(128).regex(/^[a-zA-Z0-9_-]{1,128}$/),
+      session_id: z.string().min(1).max(200),
+      reason: z.enum(['completed', 'interrupted', 'failed', 'timeout']),
+      duration_ms: z.number().int().nonnegative().optional(),
+      tool_call_count: z.number().int().nonnegative().optional(),
+      failed_tool_call_count: z.number().int().nonnegative().optional(),
+      files_touched: z.array(z.string().min(1).max(1024)).max(100).optional(),
+      input_tokens: z.number().int().nonnegative().optional(),
+      output_tokens: z.number().int().nonnegative().optional(),
+    },
+    reportEvent('agent_session_ended', (a) => ({
+      agent_id: a.agent_id,
+      session_id: a.session_id,
+      reason: a.reason,
+      ...(a.duration_ms !== undefined ? { duration_ms: a.duration_ms } : {}),
+      ...(a.tool_call_count !== undefined ? { tool_call_count: a.tool_call_count } : {}),
+      ...(a.failed_tool_call_count !== undefined ? { failed_tool_call_count: a.failed_tool_call_count } : {}),
+      ...(a.files_touched ? { files_touched: a.files_touched } : {}),
+      ...(a.input_tokens !== undefined ? { input_tokens: a.input_tokens } : {}),
+      ...(a.output_tokens !== undefined ? { output_tokens: a.output_tokens } : {}),
+    })),
+  );
+
+  tool(
+    'report_interruption',
+    'Record that the agent session was interrupted (ledger event; task status is not changed).',
+    {
+      agent_id: z.string().min(1).max(200),
+      project_id: z.string().min(1).max(200).optional(),
+      task_id: z.string().min(1).max(200).optional(),
+      idempotency_key: z.string().min(1).max(128).regex(/^[a-zA-Z0-9_-]{1,128}$/),
+      session_id: z.string().min(1).max(200),
+      reason: z.string().min(1).max(2000).optional(),
+    },
+    reportEvent('agent_interrupted', (a) => ({
+      agent_id: a.agent_id,
+      session_id: a.session_id,
+      ...(a.reason ? { reason: a.reason } : {}),
+    })),
+  );
+
+  tool(
+    'report_timeout',
+    'Record that the agent session timed out (ledger event; task status is not changed).',
+    {
+      agent_id: z.string().min(1).max(200),
+      project_id: z.string().min(1).max(200).optional(),
+      task_id: z.string().min(1).max(200).optional(),
+      idempotency_key: z.string().min(1).max(128).regex(/^[a-zA-Z0-9_-]{1,128}$/),
+      session_id: z.string().min(1).max(200),
+      timeout_ms: z.number().int().nonnegative().optional(),
+    },
+    reportEvent('agent_timed_out', (a) => ({
+      agent_id: a.agent_id,
+      session_id: a.session_id,
+      ...(a.timeout_ms !== undefined ? { timeout_ms: a.timeout_ms } : {}),
+    })),
+  );
+
+  tool(
+    'report_progress_milestone',
+    'Record a progress milestone on a task or project (ledger event, no task transition).',
+    {
+      agent_id: z.string().min(1).max(200),
+      project_id: z.string().min(1).max(200).optional(),
+      task_id: z.string().min(1).max(200).optional(),
+      idempotency_key: z.string().min(1).max(128).regex(/^[a-zA-Z0-9_-]{1,128}$/),
+      session_id: z.string().min(1).max(200).optional(),
+      summary: z.string().min(1).max(2000),
+    },
+    reportEvent('progress_milestone', (a) => ({
+      agent_id: a.agent_id,
+      ...(a.session_id ? { session_id: a.session_id } : {}),
+      summary: a.summary,
+    })),
+  );
+
+  tool(
+    'report_fulfilment',
+    'Record fulfilment evidence (summary, findings, blockers, next steps, files changed). Ledger event; triggers checkpoint evaluation, never a task transition.',
+    {
+      agent_id: z.string().min(1).max(200),
+      project_id: z.string().min(1).max(200).optional(),
+      task_id: z.string().min(1).max(200).optional(),
+      idempotency_key: z.string().min(1).max(128).regex(/^[a-zA-Z0-9_-]{1,128}$/),
+      session_id: z.string().min(1).max(200).optional(),
+      summary: z.string().min(1).max(2000),
+      findings: z.string().min(1).max(10000).optional(),
+      blockers: z.string().min(1).max(5000).optional(),
+      next_steps: z.string().min(1).max(5000).optional(),
+      files_changed: z.array(z.string().min(1).max(1024)).max(100).optional(),
+      duration_ms: z.number().int().nonnegative().optional(),
+      tool_call_count: z.number().int().nonnegative().optional(),
+      failed_tool_call_count: z.number().int().nonnegative().optional(),
+      input_tokens: z.number().int().nonnegative().optional(),
+      output_tokens: z.number().int().nonnegative().optional(),
+    },
+    reportEvent('progress_fulfilment', (a) => ({
+      agent_id: a.agent_id,
+      ...(a.session_id ? { session_id: a.session_id } : {}),
+      summary: a.summary,
+      ...(a.findings ? { findings: a.findings } : {}),
+      ...(a.blockers ? { blockers: a.blockers } : {}),
+      ...(a.next_steps ? { next_steps: a.next_steps } : {}),
+      ...(a.files_changed ? { files_changed: a.files_changed } : {}),
+      ...(a.duration_ms !== undefined ? { duration_ms: a.duration_ms } : {}),
+      ...(a.tool_call_count !== undefined ? { tool_call_count: a.tool_call_count } : {}),
+      ...(a.failed_tool_call_count !== undefined ? { failed_tool_call_count: a.failed_tool_call_count } : {}),
+      ...(a.input_tokens !== undefined ? { input_tokens: a.input_tokens } : {}),
+      ...(a.output_tokens !== undefined ? { output_tokens: a.output_tokens } : {}),
+    })),
+  );
+
+  tool(
+    'report_verification',
+    'Record a verification outcome: passed, failed or skipped, with check_type and detail (ledger event, no task transition).',
+    {
+      agent_id: z.string().min(1).max(200),
+      project_id: z.string().min(1).max(200).optional(),
+      task_id: z.string().min(1).max(200).optional(),
+      idempotency_key: z.string().min(1).max(128).regex(/^[a-zA-Z0-9_-]{1,128}$/),
+      session_id: z.string().min(1).max(200).optional(),
+      outcome: z.enum(['passed', 'failed', 'skipped']),
+      check_type: z.string().min(1).max(200),
+      detail: z.string().min(1).max(10000).optional(),
+    },
+    reportEvent(
+      (a) => `verification_${a.outcome}`,
+      (a) => ({
+        agent_id: a.agent_id,
+        ...(a.session_id ? { session_id: a.session_id } : {}),
+        check_type: a.check_type,
+        ...(a.detail ? { detail: a.detail } : {}),
+      }),
+    ),
+  );
+
+  tool(
+    'report_tool_call',
+    'Record a single tool call with target, duration, and outcome (ledger event; no task transition).',
+    {
+      agent_id: z.string().min(1).max(200),
+      project_id: z.string().min(1).max(200).optional(),
+      task_id: z.string().min(1).max(200).optional(),
+      idempotency_key: z.string().min(1).max(128).regex(/^[a-zA-Z0-9_-]{1,128}$/),
+      session_id: z.string().min(1).max(200).optional(),
+      tool: z.string().min(1).max(200),
+      status: z.enum(['succeeded', 'failed']),
+      duration_ms: z.number().int().nonnegative(),
+      target: z.string().min(1).max(1024).optional(),
+      tool_call_id: z.string().min(1).max(200).optional(),
+    },
+    reportEvent('agent_tool_call', (a) => ({
+      agent_id: a.agent_id,
+      ...(a.session_id ? { session_id: a.session_id } : {}),
+      tool: a.tool,
+      status: a.status,
+      duration_ms: a.duration_ms,
+      ...(a.target ? { target: a.target } : {}),
+      ...(a.tool_call_id ? { tool_call_id: a.tool_call_id } : {}),
+    })),
+  );
+}
