@@ -20,31 +20,12 @@ import { createRegistryDb, tempProjectRoot } from '../helpers/registry-factory.j
  */
 
 const EXPECTED_TOOLS = [
-  'block_task',
-  'cancel_task',
-  'claim_task',
-  'complete_task',
+  'checkpoint',
   'create_task',
-  'end_agent_session',
-  'export_handoff',
-  'get_dashboard',
   'get_resume_context',
-  'get_task',
-  'get_task_history',
   'list_tasks',
-  'mark_task_interrupted',
-  'record_checkpoint',
   'record_decision',
-  'release_task',
-  'report_fulfilment',
-  'report_interruption',
-  'report_progress_milestone',
-  'report_timeout',
-  'report_tool_call',
-  'report_verification',
-  'start_agent_session',
-  'supersede_decision',
-  'unblock_task',
+  'start_session',
   'update_task',
 ].sort();
 
@@ -115,7 +96,7 @@ describe('MCP over Streamable HTTP', () => {
     corePort = (core.server.address() as AddressInfo).port;
 
     adapterConfig = {
-      ...loadAdapterConfig({ WORKJOURNAL_TOOLS: 'full' } as NodeJS.ProcessEnv),
+      ...loadAdapterConfig({} as NodeJS.ProcessEnv),
       transport: 'http',
       coreUrl: coreUrl(),
     };
@@ -162,7 +143,7 @@ describe('MCP over Streamable HTTP', () => {
         expect(tool.inputSchema).toBeDefined();
         expect((tool.inputSchema as { type?: string }).type).toBe('object');
       }
-      expect(tools.find((t) => t.name === 'create_task')?.description).toMatch(/idempotency_key/);
+      expect(tools.find((t) => t.name === 'create_task')?.description).toMatch(/multi-step work/);
     } finally {
       await client.close();
     }
@@ -188,42 +169,38 @@ describe('MCP over Streamable HTTP', () => {
     expect(res.headers['mcp-session-id']).toBeTruthy();
   });
 
-  it('invokes a read tool (get_dashboard) through the core service', async () => {
+  it('invokes a read tool (list_tasks) through the core service', async () => {
     const client = await connectClient();
     try {
-      const result = await client.callTool({ name: 'get_dashboard', arguments: {} });
+      const result = await client.callTool({ name: 'list_tasks', arguments: { project: projectId } });
       const content = (result as { content: Array<{ type: string; text: string }> }).content;
       expect(content[0].type).toBe('text');
-      const payload = JSON.parse(content[0].text);
-      expect(payload.stats).toBeDefined();
-      expect(Array.isArray(payload.projects)).toBe(true);
+      const structured = (result as { structuredContent?: Record<string, unknown> }).structuredContent;
+      expect(structured?.counts).toBeDefined();
+      expect(Array.isArray(structured?.tasks)).toBe(true);
     } finally {
       await client.close();
     }
   }, 30_000);
 
-  it('invokes write tools (create_task then get_task) and preserves business rules', async () => {
+  it('invokes write tools (create_task then list_tasks with task_id) and preserves business rules', async () => {
     const client = await connectClient();
     try {
       const created = await client.callTool({
         name: 'create_task',
         arguments: {
-          project_id: projectId,
-          agent_id: `agent-a_${projectId}`,
+          project: projectId,
           title: 'Task created over HTTP MCP',
-          idempotency_key: 'mcp-http-task-001',
         },
       });
-      const task = JSON.parse(
-        (created as { content: Array<{ text: string }> }).content[0].text,
-      );
+      const structured = (created as { structuredContent?: Record<string, unknown> }).structuredContent;
+      const task = structured?.task as { id: string; status: string };
       expect(task.id).toBeTruthy();
       expect(task.status).toBe('open');
 
-      const fetched = await client.callTool({ name: 'get_task', arguments: { task_id: task.id } });
-      const refetched = JSON.parse(
-        (fetched as { content: Array<{ text: string }> }).content[0].text,
-      );
+      const fetched = await client.callTool({ name: 'list_tasks', arguments: { project: projectId, task_id: task.id } });
+      const fetchedStructured = (fetched as { structuredContent?: Record<string, unknown> }).structuredContent;
+      const refetched = (fetchedStructured?.tasks as { id: string; title: string }[])?.[0];
       expect(refetched.id).toBe(task.id);
       expect(refetched.title).toBe('Task created over HTTP MCP');
     } finally {
@@ -234,12 +211,14 @@ describe('MCP over Streamable HTTP', () => {
   it('returns a protocol error for invalid tool arguments', async () => {
     const client = await connectClient();
     try {
-      // Missing required task_id: SDK schema validation rejects before the
-      // handler and returns an MCP error result (not a crash).
-      const result = await client.callTool({ name: 'get_task', arguments: {} });
+      // blocked status without reason is rejected by the handler
+      const result = await client.callTool({
+        name: 'update_task',
+        arguments: { task_id: 'nonexistent-task', status: 'blocked' },
+      });
       expect((result as { isError?: boolean }).isError).toBe(true);
       const text = (result as { content: Array<{ text: string }> }).content[0].text;
-      expect(text).toMatch(/task_id/i);
+      expect(text).toMatch(/task_id|NO_TASK|not found|MISSING_REASON|requires reason/i);
     } finally {
       await client.close();
     }

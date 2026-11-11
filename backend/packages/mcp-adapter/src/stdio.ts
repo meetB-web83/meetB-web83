@@ -1,6 +1,5 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createMcpServer } from './server-factory.js';
-import { ToolProfile } from './config.js';
 import { createLogger } from '@workjournal/shared';
 
 let _stdioLogger: ReturnType<typeof createLogger> | null = null;
@@ -18,11 +17,10 @@ const stdioLogger = new Proxy({} as ReturnType<typeof createLogger>, {
 export async function startStdioServer(
   coreUrl: string,
   projectId?: string,
-  toolProfile: ToolProfile = 'core',
 ): Promise<void> {
-  stdioLogger.info({ coreUrl, projectId: projectId ?? null, toolProfile }, 'connecting MCP server to stdio transport');
-  const server = await createMcpServer(coreUrl, projectId, toolProfile);
+  stdioLogger.info({ coreUrl, projectId: projectId ?? null }, 'connecting MCP server to stdio transport');
+  const server = await createMcpServer(coreUrl, projectId);
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  stdioLogger.info({ coreUrl, toolProfile }, 'MCP server connected to stdio transport');
+  stdioLogger.info({ coreUrl }, 'MCP server connected to stdio transport');
 }

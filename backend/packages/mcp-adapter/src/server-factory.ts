@@ -1,7 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerTools } from './tools/register.js';
 import { syncPrompts } from './prompts/registry.js';
-import { ToolProfile } from './config.js';
 import { createLogger, LOG_FILE } from '@workjournal/shared';
 
 let _mcpLogger: ReturnType<typeof createLogger> | null = null;
@@ -51,40 +50,36 @@ Rules: one task at a time; never edit files for a task you have not claimed; nev
 export async function createMcpServer(
   coreUrl: string,
   projectId?: string,
-  toolProfile: ToolProfile = 'core',
 ): Promise<McpServer> {
-  mcpLogger.info({ coreUrl, logFile: LOG_FILE, projectId: projectId ?? null, toolProfile }, 'creating MCP server');
+  mcpLogger.info({ coreUrl, logFile: LOG_FILE, projectId: projectId ?? null }, 'creating MCP server');
   const server = new McpServer(
     { name: 'workjournal', version: '0.1.0' },
     { instructions: MCP_SERVER_INSTRUCTIONS },
   );
-  registerTools(server, coreUrl, projectId, toolProfile);
+  registerTools(server, coreUrl, projectId);
 
   // The `prompts` capability must be registered BEFORE connect() and BEFORE
   // syncPrompts, because capabilities cannot be added after connect().
   // Later registerPrompt() calls would throw if this is missing.
-  // Only register prompts capability for 'full' profile (which includes all built-in prompts).
-  if (toolProfile === 'full') {
-    server.server.registerCapabilities({ prompts: { listChanged: true } });
+  server.server.registerCapabilities({ prompts: { listChanged: true } });
 
-    try {
-      const registered = await syncPrompts(server, coreUrl, projectId ?? process.env.WORKJOURNAL_PROJECT_ID);
-      mcpLogger.info(
-        {
-          coreUrl,
-          projectId: process.env.WORKJOURNAL_PROJECT_ID || null,
-          promptCount: registered.size,
-        },
-        'prompt registry synced',
-      );
-    } catch (err) {
-      mcpLogger.error({ coreUrl, error: String(err) }, 'failed to sync prompt registry on startup');
-    }
-
-    // Subscribe to prompt change notifications via SSE.
-    // Runs in the background; errors are logged but don't block server startup.
-    void subscribeToPromptChanges(server, coreUrl);
+  try {
+    const registered = await syncPrompts(server, coreUrl, projectId ?? process.env.WORKJOURNAL_PROJECT_ID);
+    mcpLogger.info(
+      {
+        coreUrl,
+        projectId: process.env.WORKJOURNAL_PROJECT_ID || null,
+        promptCount: registered.size,
+      },
+      'prompt registry synced',
+    );
+  } catch (err) {
+    mcpLogger.error({ coreUrl, error: String(err) }, 'failed to sync prompt registry on startup');
   }
+
+  // Subscribe to prompt change notifications via SSE.
+  // Runs in the background; errors are logged but don't block server startup.
+  void subscribeToPromptChanges(server, coreUrl);
 
   return server;
 }

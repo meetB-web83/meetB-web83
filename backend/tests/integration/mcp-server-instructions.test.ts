@@ -110,7 +110,7 @@ describe('MCP server instructions', () => {
       corePort = (core.server.address() as AddressInfo).port;
 
       const adapterConfig: AdapterConfig = {
-        ...loadAdapterConfig({ WORKJOURNAL_TOOLS: 'core' } as NodeJS.ProcessEnv),
+        ...loadAdapterConfig({} as NodeJS.ProcessEnv),
         transport: 'http',
         coreUrl: coreUrl(),
       };

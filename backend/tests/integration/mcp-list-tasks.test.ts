@@ -70,7 +70,7 @@ describe('MCP core profile: list_tasks tool', () => {
 
     // Now create adapter with the known projectId
     adapterConfig = {
-      ...loadAdapterConfig({ WORKJOURNAL_TOOLS: 'core', WORKJOURNAL_PROJECT_ID: projectId } as NodeJS.ProcessEnv),
+      ...loadAdapterConfig({ WORKJOURNAL_PROJECT_ID: projectId } as NodeJS.ProcessEnv),
       transport: 'http',
       coreUrl: coreUrl(),
     };
@@ -113,20 +113,19 @@ describe('MCP core profile: list_tasks tool', () => {
     expect(listTasksTool?.annotations?.idempotentHint).toBe(true);
     expect(listTasksTool?.annotations?.destructiveHint).toBe(false);
     expect(listTasksTool?.inputSchema).toBeDefined();
-    expect(listTasksTool?.description).toBe('See which tasks exist and which one to work on.');
+    expect(listTasksTool?.description).toBe('See which tasks exist and which one to work on. Pass status/priority filters and limit. Defaults to actionable tasks (open, interrupted, in_progress).');
   });
 
   it('list_tasks default: returns actionable tasks only with count summary', async () => {
-    const agentId = `test-agent_${projectId}`;
     
     // Create open tasks
     await client.callTool({
       name: 'create_task',
-      arguments: { project: projectId, agent_id: agentId, title: 'Open Task 1', priority: 'high', idempotency_key: 'lt-1' },
+      arguments: { project: projectId, title: 'Open Task 1', priority: 'high' },
     });
     await client.callTool({
       name: 'create_task',
-      arguments: { project: projectId, agent_id: agentId, title: 'Open Task 2', priority: 'medium', idempotency_key: 'lt-2' },
+      arguments: { project: projectId, title: 'Open Task 2', priority: 'medium' },
     });
     
     const result = await client.callTool({ name: 'list_tasks', arguments: {} });
@@ -184,10 +183,9 @@ describe('MCP core profile: list_tasks tool', () => {
   });
 
   it('start_session returns in_progress tasks + count summary (no open/interrupted list)', async () => {
-    const agentId = `session-agent_${projectId}`;
     await client.callTool({
       name: 'create_task',
-      arguments: { project: projectId, agent_id: agentId, title: 'Test Task', priority: 'medium', idempotency_key: 'session-test-1' },
+      arguments: { project: projectId, title: 'Test Task', priority: 'medium' },
     });
 
     const result = await client.callTool({ name: 'start_session', arguments: {} });
