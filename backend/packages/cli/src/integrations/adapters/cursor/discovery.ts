@@ -2,10 +2,10 @@
  * Cursor discovery and path resolution (plan §10.3, D-021).
  *
  * Cursor keeps MCP servers at `~/.cursor/mcp.json` (global) or
- * `./.cursor/mcp.json` (project), under the `mcpServers` key. Cursor does
- * not expose a lifecycle plugin API — its integration surface is MCP stdio
- * servers only. The binary to detect is `cursor-agent` (CLI) or the Cursor
- * IDE itself.
+ * `./.cursor/mcp.json` (project), under the `mcpServers` key. Cursor plugins
+ * live in `~/.cursor/plugins/local/<plugin-name>/` (global) with a
+ * `plugin.json` manifest plus hook configs and an ingest script. The binary
+ * to detect is `cursor-agent` (CLI) or `cursor` (Cursor IDE CLI shim).
  */
 
 import { existsSync } from 'node:fs';
@@ -19,7 +19,9 @@ export interface CursorPaths {
   scope: 'global' | 'project';
   settingsPath: string;
   settingsCandidates: string[];
-  pluginPath?: string;
+  pluginDir: string;
+  pluginPath: string;
+  pluginCandidates: string[];
 }
 
 export function resolveCursorPaths(env: SetupEnv): CursorPaths {
@@ -32,11 +34,16 @@ export function resolveCursorPaths(env: SetupEnv): CursorPaths {
       ? join(env.cwd, '.cursor', 'mcp.json')
       : join(cursorDir, 'mcp.json'));
 
+  const pluginDir = join(home, '.cursor', 'plugins', 'local', 'workjournal');
+  const pluginPath = join(pluginDir, 'plugin.json');
+
   return {
     scope,
     settingsPath,
     settingsCandidates: [settingsPath],
-    pluginPath: scope === 'project' ? join(env.cwd, '.cursor', 'mcp.json') : undefined,
+    pluginDir,
+    pluginPath,
+    pluginCandidates: [pluginPath, join(pluginDir, 'hooks', 'workjournal-hooks.json'), join(pluginDir, 'hooks', 'ingest.js')],
   };
 }
 
@@ -54,14 +61,14 @@ export function isValidCursorEntry(entry: unknown): boolean {
 
 export async function discoverCursor(env: SetupEnv): Promise<DiscoveryResult> {
   const paths = resolveCursorPaths(env);
-  const binary = resolveCommandPath('cursor-agent');
-  const checked = [...paths.settingsCandidates];
+  const binary = resolveCommandPath('cursor-agent') ?? resolveCommandPath('cursor');
+  const checked = [...paths.settingsCandidates, ...paths.pluginCandidates];
 
   if (!binary) {
     return {
       id: 'cursor',
       state: 'not_installed',
-      evidence: ['cursor-agent executable not found on PATH'],
+      evidence: ['cursor-agent or cursor executable not found on PATH'],
       paths: checked,
     };
   }
@@ -81,16 +88,18 @@ export async function discoverCursor(env: SetupEnv): Promise<DiscoveryResult> {
     return {
       id: 'cursor',
       state: 'installed_not_configured',
-      evidence: [`cursor-agent found at ${binary}`, `no MCP settings file at ${paths.settingsPath}`],
+      evidence: [`cursor found at ${binary}`, `no MCP settings file at ${paths.settingsPath}`],
       paths: checked,
     };
   }
 
   const entry = getAtPath(loaded.data, ['mcpServers', 'workjournal']);
+  const pluginPresent = paths.pluginCandidates.some((p) => existsSync(p));
   const evidence = [
-    `cursor-agent found at ${binary}`,
+    `cursor found at ${binary}`,
     `settings: ${loaded.path}`,
     entry === undefined ? 'mcpServers.workjournal missing' : 'mcpServers.workjournal present',
+    pluginPresent ? `plugin: ${paths.pluginPath}` : `plugin missing: ${paths.pluginPath}`,
   ];
 
   if (entry !== undefined && !isValidCursorEntry(entry)) {
@@ -98,7 +107,7 @@ export async function discoverCursor(env: SetupEnv): Promise<DiscoveryResult> {
     return { id: 'cursor', state: 'installed_not_configured', evidence, paths: checked };
   }
 
-  if (entry !== undefined) {
+  if (entry !== undefined && pluginPresent) {
     return { id: 'cursor', state: 'configured', evidence, paths: checked };
   }
   return { id: 'cursor', state: 'installed_not_configured', evidence, paths: checked };

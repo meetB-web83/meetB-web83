@@ -15,11 +15,20 @@ import type { SetupContext } from '../../packages/cli/src/integrations/types.js'
 import { opencodeIntegration } from '../../packages/cli/src/integrations/adapters/opencode/index.js';
 import { clineIntegration } from '../../packages/cli/src/integrations/adapters/cline/index.js';
 import { cursorIntegration } from '../../packages/cli/src/integrations/adapters/cursor/index.js';
+import { geminiCliIntegration } from '../../packages/cli/src/integrations/adapters/gemini-cli/index.js';
+import { claudeCodeIntegration } from '../../packages/cli/src/integrations/adapters/claude-code/index.js';
+import { antigravityCliIntegration } from '../../packages/cli/src/integrations/adapters/antigravity-cli/index.js';
 import { resolveOpencodePaths } from '../../packages/cli/src/integrations/adapters/opencode/discovery.js';
 import { resolveClinePaths } from '../../packages/cli/src/integrations/adapters/cline/discovery.js';
 import { resolveCursorPaths } from '../../packages/cli/src/integrations/adapters/cursor/discovery.js';
+import { resolveGeminiCliPaths } from '../../packages/cli/src/integrations/adapters/gemini-cli/discovery.js';
+import { resolveClaudeCodePaths } from '../../packages/cli/src/integrations/adapters/claude-code/discovery.js';
+import { resolveAntigravityCliPaths } from '../../packages/cli/src/integrations/adapters/antigravity-cli/discovery.js';
 import { clinePluginVersion } from '../../packages/cli/src/integrations/adapters/cline/plugin.generated.js';
 import { opencodePluginVersion } from '../../packages/cli/src/integrations/adapters/opencode/plugin.generated.js';
+import { geminiCliPluginVersion } from '../../packages/cli/src/integrations/adapters/gemini-cli/plugin.generated.js';
+import { claudeCodePluginVersion } from '../../packages/cli/src/integrations/adapters/claude-code/plugin.generated.js';
+import { antigravityCliPluginVersion } from '../../packages/cli/src/integrations/adapters/antigravity-cli/plugin.generated.js';
 import { parseJsonc } from '../../packages/cli/src/integrations/safe-config.js';
 
 const COMMAND = ['workjournal', 'mcp', '--with-ui'];
@@ -435,6 +444,279 @@ describe('cursor integration', () => {
   });
 });
 
+describe('gemini-cli integration', () => {
+  it('writes mcpServers plus an extension', async () => {
+    await fakeBinary('gemini');
+    const context = ctx({ agentId: 'gemini-cli' });
+
+    const plan = await geminiCliIntegration.plan(context);
+    expect(plan.error).toBeUndefined();
+    const result = await geminiCliIntegration.apply(plan, context);
+    expect(result.success).toBe(true);
+
+    const paths = resolveGeminiCliPaths(context);
+    const settings = JSON.parse(await readFile(paths.settingsPath, 'utf8'));
+    expect(settings.mcpServers.workjournal).toEqual({
+      command: COMMAND[0],
+      args: COMMAND.slice(1),
+      disabled: false,
+    });
+
+    const manifest = JSON.parse(await readFile(paths.pluginManifest, 'utf8'));
+    expect(manifest.name).toBe('workjournal');
+    await expect(readFile(paths.pluginEntry, 'utf8')).resolves.toContain('/api/ingest/events');
+    const installManifest = JSON.parse(
+      await readFile(join(context.workjournalHome, 'integrations', 'gemini-cli', 'extension', 'manifest.json'), 'utf8'),
+    );
+    // Note: gemini-cli stores extensions inline, not under workjournalHome.
+    expect(manifest.version).toBe(geminiCliPluginVersion);
+
+    const validation = await geminiCliIntegration.validate(context);
+    expect(validation.valid).toBe(true);
+  });
+
+  it('is idempotent — a second plan is all noop', async () => {
+    await fakeBinary('gemini');
+    const context = ctx({ agentId: 'gemini-cli' });
+    const first = await geminiCliIntegration.plan(context);
+    expect((await geminiCliIntegration.apply(first, context)).success).toBe(true);
+
+    const second = await geminiCliIntegration.plan(context);
+    expect(second.files.every((file) => file.action === 'noop')).toBe(true);
+    expect((await geminiCliIntegration.apply(second, context)).filesModified).toEqual([]);
+  });
+
+  it('refuses to clobber a different command unless forced', async () => {
+    await fakeBinary('gemini');
+    const context = ctx({ agentId: 'gemini-cli' });
+    const paths = resolveGeminiCliPaths(context);
+    await mkdir(join(home, '.gemini'), { recursive: true });
+    await writeFile(
+      paths.settingsPath,
+      JSON.stringify({ mcpServers: { workjournal: { command: 'node', args: ['other.js'] } } }, null, 2),
+      'utf8',
+    );
+
+    const refused = await geminiCliIntegration.plan(context);
+    expect(refused.error).toMatch(/--force/);
+    expect((await geminiCliIntegration.apply(refused, context)).success).toBe(false);
+
+    const forced = await geminiCliIntegration.plan(ctx({ agentId: 'gemini-cli', force: true }));
+    expect((await geminiCliIntegration.apply(forced, context)).success).toBe(true);
+  });
+
+  it('installs the extension globally, not per project', async () => {
+    await fakeBinary('gemini');
+    const context = ctx({ agentId: 'gemini-cli', scope: 'project' });
+    const paths = resolveGeminiCliPaths(context);
+
+    const plan = await geminiCliIntegration.plan(context);
+    expect(plan.files.map((file) => file.path)).not.toContain(paths.pluginEntry);
+    expect(plan.warnings?.[0]).toMatch(/--global/);
+    expect((await geminiCliIntegration.apply(plan, context)).success).toBe(true);
+    await expect(readFile(paths.settingsPath, 'utf8')).resolves.toContain('"workjournal"');
+    await expect(readFile(paths.pluginEntry, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('uninstalls the entry and extension', async () => {
+    await fakeBinary('gemini');
+    const context = ctx({ agentId: 'gemini-cli' });
+    const paths = resolveGeminiCliPaths(context);
+    await mkdir(join(home, '.gemini'), { recursive: true });
+    await writeFile(paths.settingsPath, JSON.stringify({ mcpServers: { other: { command: 'x' } } }), 'utf8');
+
+    const plan = await geminiCliIntegration.plan(context);
+    expect((await geminiCliIntegration.apply(plan, context)).success).toBe(true);
+    const result = await geminiCliIntegration.uninstall(context);
+    expect(result.success).toBe(true);
+
+    const settings = JSON.parse(await readFile(paths.settingsPath, 'utf8'));
+    expect(settings.mcpServers.workjournal).toBeUndefined();
+    expect(settings.mcpServers.other).toEqual({ command: 'x' });
+    await expect(readFile(paths.pluginEntry, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+});
+
+describe('claude-code integration', () => {
+  it('writes mcpServers plus hook handler', async () => {
+    await fakeBinary('claude');
+    const context = ctx({ agentId: 'claude-code' });
+
+    const plan = await claudeCodeIntegration.plan(context);
+    expect(plan.error).toBeUndefined();
+    const result = await claudeCodeIntegration.apply(plan, context);
+    expect(result.success).toBe(true);
+
+    const paths = resolveClaudeCodePaths(context);
+    const settings = JSON.parse(await readFile(paths.mcpPath, 'utf8'));
+    expect(settings.mcpServers.workjournal).toEqual({
+      command: COMMAND[0],
+      args: COMMAND.slice(1),
+      disabled: false,
+    });
+
+    await expect(readFile(paths.hookHandler, 'utf8')).resolves.toContain('/api/ingest/events');
+
+    const validation = await claudeCodeIntegration.validate(context);
+    expect(validation.valid).toBe(true);
+  });
+
+  it('is idempotent — a second plan is all noop', async () => {
+    await fakeBinary('claude');
+    const context = ctx({ agentId: 'claude-code' });
+    const first = await claudeCodeIntegration.plan(context);
+    expect((await claudeCodeIntegration.apply(first, context)).success).toBe(true);
+
+    const second = await claudeCodeIntegration.plan(context);
+    expect(second.files.every((file) => file.action === 'noop')).toBe(true);
+    expect((await claudeCodeIntegration.apply(second, context)).filesModified).toEqual([]);
+  });
+
+  it('refuses to clobber a different command unless forced', async () => {
+    await fakeBinary('claude');
+    const context = ctx({ agentId: 'claude-code' });
+    const paths = resolveClaudeCodePaths(context);
+    await mkdir(join(home, '.claude'), { recursive: true });
+    await writeFile(
+      paths.mcpPath,
+      JSON.stringify({ mcpServers: { workjournal: { command: 'node', args: ['other.js'] } } }, null, 2),
+      'utf8',
+    );
+
+    const refused = await claudeCodeIntegration.plan(context);
+    expect(refused.error).toMatch(/--force/);
+    expect((await claudeCodeIntegration.apply(refused, context)).success).toBe(false);
+
+    const forced = await claudeCodeIntegration.plan(ctx({ agentId: 'claude-code', force: true }));
+    expect((await claudeCodeIntegration.apply(forced, context)).success).toBe(true);
+  });
+
+  it('supports project scope paths', async () => {
+    await fakeBinary('claude');
+    const context = ctx({ agentId: 'claude-code', scope: 'project' });
+    const paths = resolveClaudeCodePaths(context);
+    expect(paths.mcpPath).toBe(join(cwd, '.mcp.json'));
+
+    const plan = await claudeCodeIntegration.plan(context);
+    expect((await claudeCodeIntegration.apply(plan, context)).success).toBe(true);
+    const settings = JSON.parse(await readFile(paths.mcpPath, 'utf8'));
+    expect(settings.mcpServers.workjournal.command).toEqual(COMMAND[0]);
+  });
+
+  it('uninstalls the entry and hook handler', async () => {
+    await fakeBinary('claude');
+    const context = ctx({ agentId: 'claude-code' });
+    const paths = resolveClaudeCodePaths(context);
+    await mkdir(join(home, '.claude'), { recursive: true });
+    await writeFile(paths.mcpPath, JSON.stringify({ mcpServers: { other: { command: 'x' } } }), 'utf8');
+
+    const plan = await claudeCodeIntegration.plan(context);
+    expect((await claudeCodeIntegration.apply(plan, context)).success).toBe(true);
+    const result = await claudeCodeIntegration.uninstall(context);
+    expect(result.success).toBe(true);
+
+    const settings = JSON.parse(await readFile(paths.mcpPath, 'utf8'));
+    expect(settings.mcpServers.workjournal).toBeUndefined();
+    expect(settings.mcpServers.other).toEqual({ command: 'x' });
+    await expect(readFile(paths.hookHandler, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+});
+
+describe('antigravity-cli integration', () => {
+  it('writes mcpServers in mcp_config.json plus a plugin', async () => {
+    await fakeBinary('agy');
+    const context = ctx({ agentId: 'antigravity-cli' });
+
+    const plan = await antigravityCliIntegration.plan(context);
+    expect(plan.error).toBeUndefined();
+    const result = await antigravityCliIntegration.apply(plan, context);
+    expect(result.success).toBe(true);
+
+    const paths = resolveAntigravityCliPaths(context);
+    const config = JSON.parse(await readFile(paths.mcpConfigPath, 'utf8'));
+    expect(config.mcpServers.workjournal).toEqual({
+      command: COMMAND[0],
+      args: COMMAND.slice(1),
+      disabled: false,
+    });
+
+    await expect(readFile(paths.pluginEntry, 'utf8')).resolves.toContain('/api/ingest/events');
+    const stagedManifest = JSON.parse(
+      await readFile(
+        join(context.workjournalHome, 'integrations', 'antigravity-cli', 'plugin', 'manifest.json'),
+        'utf8',
+      ),
+    );
+    expect(stagedManifest.version).toBe(antigravityCliPluginVersion);
+
+    const validation = await antigravityCliIntegration.validate(context);
+    expect(validation.valid).toBe(true);
+  });
+
+  it('is idempotent — a second plan is all noop', async () => {
+    await fakeBinary('agy');
+    const context = ctx({ agentId: 'antigravity-cli' });
+    const first = await antigravityCliIntegration.plan(context);
+    expect((await antigravityCliIntegration.apply(first, context)).success).toBe(true);
+
+    const second = await antigravityCliIntegration.plan(context);
+    expect(second.files.every((file) => file.action === 'noop')).toBe(true);
+    expect((await antigravityCliIntegration.apply(second, context)).filesModified).toEqual([]);
+  });
+
+  it('refuses to clobber a different command unless forced', async () => {
+    await fakeBinary('agy');
+    const context = ctx({ agentId: 'antigravity-cli' });
+    const paths = resolveAntigravityCliPaths(context);
+    await mkdir(join(home, '.gemini', 'config'), { recursive: true });
+    await writeFile(
+      paths.mcpConfigPath,
+      JSON.stringify({ mcpServers: { workjournal: { command: 'node', args: ['other.js'] } } }, null, 2),
+      'utf8',
+    );
+
+    const refused = await antigravityCliIntegration.plan(context);
+    expect(refused.error).toMatch(/--force/);
+    expect((await antigravityCliIntegration.apply(refused, context)).success).toBe(false);
+
+    const forced = await antigravityCliIntegration.plan(ctx({ agentId: 'antigravity-cli', force: true }));
+    expect((await antigravityCliIntegration.apply(forced, context)).success).toBe(true);
+  });
+
+  it('supports project scope paths', async () => {
+    await fakeBinary('agy');
+    const context = ctx({ agentId: 'antigravity-cli', scope: 'project' });
+    const paths = resolveAntigravityCliPaths(context);
+    expect(paths.mcpConfigPath).toBe(join(cwd, '.agents', 'mcp_config.json'));
+    expect(paths.pluginEntry).toBe(join(cwd, '.agents', 'plugins', 'workjournal'));
+
+    const plan = await antigravityCliIntegration.plan(context);
+    expect(plan.files.map((file) => file.path)).not.toContain(paths.pluginEntry);
+    expect(plan.warnings?.[0]).toMatch(/--global/);
+    expect((await antigravityCliIntegration.apply(plan, context)).success).toBe(true);
+    const config = JSON.parse(await readFile(paths.mcpConfigPath, 'utf8'));
+    expect(config.mcpServers.workjournal.command).toEqual(COMMAND[0]);
+  });
+
+  it('uninstalls the entry and plugin', async () => {
+    await fakeBinary('agy');
+    const context = ctx({ agentId: 'antigravity-cli' });
+    const paths = resolveAntigravityCliPaths(context);
+    await mkdir(join(home, '.gemini', 'config'), { recursive: true });
+    await writeFile(paths.mcpConfigPath, JSON.stringify({ mcpServers: { other: { command: 'x' } } }), 'utf8');
+
+    const plan = await antigravityCliIntegration.plan(context);
+    expect((await antigravityCliIntegration.apply(plan, context)).success).toBe(true);
+    const result = await antigravityCliIntegration.uninstall(context);
+    expect(result.success).toBe(true);
+
+    const config = JSON.parse(await readFile(paths.mcpConfigPath, 'utf8'));
+    expect(config.mcpServers.workjournal).toBeUndefined();
+    expect(config.mcpServers.other).toEqual({ command: 'x' });
+    await expect(readFile(paths.pluginEntry, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+});
+
 describe('discovery', () => {
   it('reports not_installed when the binary is absent', async () => {
     process.env.PATH = binDir;
@@ -478,5 +760,53 @@ describe('discovery', () => {
     const plan = await cursorIntegration.plan(context);
     await cursorIntegration.apply(plan, context);
     expect((await cursorIntegration.discover(context)).state).toBe('configured');
+  });
+
+  it('reports not_installed for gemini-cli when gemini is absent', async () => {
+    process.env.PATH = binDir;
+    const result = await geminiCliIntegration.discover(ctx({ agentId: 'gemini-cli' }));
+    expect(result.state).toBe('not_installed');
+  });
+
+  it('reports installed_not_configured before setup and configured after for gemini-cli', async () => {
+    await fakeBinary('gemini');
+    const context = ctx({ agentId: 'gemini-cli' });
+    expect((await geminiCliIntegration.discover(context)).state).toBe('installed_not_configured');
+
+    const plan = await geminiCliIntegration.plan(context);
+    await geminiCliIntegration.apply(plan, context);
+    expect((await geminiCliIntegration.discover(context)).state).toBe('configured');
+  });
+
+  it('reports not_installed for claude-code when claude is absent', async () => {
+    process.env.PATH = binDir;
+    const result = await claudeCodeIntegration.discover(ctx({ agentId: 'claude-code' }));
+    expect(result.state).toBe('not_installed');
+  });
+
+  it('reports installed_not_configured before setup and configured after for claude-code', async () => {
+    await fakeBinary('claude');
+    const context = ctx({ agentId: 'claude-code' });
+    expect((await claudeCodeIntegration.discover(context)).state).toBe('installed_not_configured');
+
+    const plan = await claudeCodeIntegration.plan(context);
+    await claudeCodeIntegration.apply(plan, context);
+    expect((await claudeCodeIntegration.discover(context)).state).toBe('configured');
+  });
+
+  it('reports not_installed for antigravity-cli when agy is absent', async () => {
+    process.env.PATH = binDir;
+    const result = await antigravityCliIntegration.discover(ctx({ agentId: 'antigravity-cli' }));
+    expect(result.state).toBe('not_installed');
+  });
+
+  it('reports installed_not_configured before setup and configured after for antigravity-cli', async () => {
+    await fakeBinary('agy');
+    const context = ctx({ agentId: 'antigravity-cli' });
+    expect((await antigravityCliIntegration.discover(context)).state).toBe('installed_not_configured');
+
+    const plan = await antigravityCliIntegration.plan(context);
+    await antigravityCliIntegration.apply(plan, context);
+    expect((await antigravityCliIntegration.discover(context)).state).toBe('configured');
   });
 });

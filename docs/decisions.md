@@ -583,3 +583,30 @@ Detection uses `resolveCommandPath('cursor-agent')`; discovery reports `not_inst
 **Decision.** The core profile gains a 7th tool: `list_tasks(status?, priority?, limit?)`. It is read-only (`readOnlyHint: true`), uses the same project resolution as other tools (no project parameter), and calls the existing `GET /api/tasks` (filtered) plus a new `GET /api/tasks/counts` endpoint for the status summary. Default behavior: actionable tasks only (`open`, `interrupted`, `in_progress`), ordered by relevance (this agent's `in_progress` first, then `interrupted`, then `open` by priority high→low). Default limit 10, max 25. Response: one-line count summary (e.g., "3 open, 1 in_progress, 1 interrupted, 12 completed"), one compact line per task (id, short title, status, priority, owner), "N more" when truncated, plus ≤2 next_actions. The `start_session` tool is updated to focus only on this agent's `in_progress` tasks, the resume brief for `task_id`, and a count summary — it no longer lists open/interrupted tasks (list_tasks does that). Tool descriptions clarify: browse → list_tasks, begin/resume → start_session.
 
 **Reason.** The addendum (meetb decision) explicitly requires: 7 tools in core profile, list_tasks with the specified behavior, and a counts endpoint for the summary. The new endpoint is a read-only core addition, recorded here. The split of responsibilities (browse vs. begin) removes overlap and gives agents a clear mental model.
+
+---
+
+## D-034 — Cursor lifecycle plugin via Cursor hook system (2026-11-04)
+
+**Decision.** Cursor gains lifecycle plugin capability alongside its existing MCP stdio integration. Cursor plugins live in `~/.cursor/plugins/local/workjournal/` (global) with a `plugin.json` manifest, hook configs, and an ingest script. Setup installs:
+
+- `mcpServers.workjournal` in `~/.cursor/mcp.json` (global) or `./.cursor/mcp.json` (project) — unchanged MCP stdio entry
+- `~/.cursor/plugins/local/workjournal/plugin.json` — plugin manifest naming the hooks config
+- `~/.cursor/plugins/local/workjournal/hooks/workjournal-hooks.json` — Cursor hook event configuration
+- `~/.cursor/plugins/local/workjournal/hooks/ingest.js` — embedded ingest script that POSTs canonical ledger envelopes to Core `POST /api/ingest/events`
+
+Cursor's hook system runs external commands (not in-process JS callbacks like OpenCode/Cline). Hook → event mapping:
+
+| Cursor Hook | WorkJournal Event |
+|-------------|-------------------|
+| `beforeSubmitPrompt` (UserPromptSubmit) | `agent_session_started` |
+| `stop` | `agent_session_ended` (with duration, tool counts, files touched) |
+| `afterFileEdit` | `agent_tool_call` (tool: 'edit', secret-redacted target) |
+
+Source: `agent:cursor`, agent ID: `cursor_<project-id>`. Project resolution uses canonical path comparison against Core's registered roots (D-026). Delivery uses a bounded queue (500 rows) with backoff when Core is down; the plugin never starts Core. Tool targets are secret-redacted and truncated to 1024 chars (D-027). Config scope follows the global/project model; `--project` edits MCP config only and warns if no global plugin exists.
+
+Supersedes the "no lifecycle plugin" clause of D-031 for Cursor. Cursor remains MCP-capable even without the plugin; the plugin is additive lifecycle observability.
+
+**Reason.** Cursor's plugin system (`~/.cursor/plugins/local/` with `plugin.json` and hook-based external commands) was verified against the official Cursor Plugins schema and cookbook. Adding lifecycle event observation brings Cursor parity with OpenCode and Cline for session continuity and per-tool activity tracking.
+
+**Status.** Implemented 2026-11-04; `packages/cli` typecheck and lint clean; `tests/integration/agent-integration.test.ts` 24/24 green (cursor cursor tests pass).

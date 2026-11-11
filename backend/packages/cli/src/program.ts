@@ -52,7 +52,7 @@ export function createCliProgram(): Command {
   program
     .command('setup')
     .description('Configure an agent integration (OpenCode, Cline, etc.)')
-    .option('--agent <id>', 'Agent to configure (opencode | cline)')
+    .option('--agent <id>', 'Agent to configure (opencode | cline | cursor | gemini-cli | claude-code | antigravity-cli)')
     .option('--global', 'Write to global config (default)')
     .option('--project', 'Write to cwd-local config')
     .option('--dry-run', 'Print planned changes without writing')

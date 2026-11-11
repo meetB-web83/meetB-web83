@@ -5,20 +5,26 @@
  * (e.g. Cline) is a new adapter file plus one entry here — no changes to
  * the setup command flow.
  *
- * OpenCode is the only adapter in this release; Cline is added as a second
- * adapter per the symmetrical adapter layout.
+ * OpenCode, Cline, Cursor, Gemini CLI, and Claude Code are all supported
+ * adapters per the symmetrical adapter layout.
  */
 
 import type { AgentIntegration } from './types.js';
 import { opencodeIntegration } from './adapters/opencode/index.js';
 import { clineIntegration } from './adapters/cline/index.js';
 import { cursorIntegration } from './adapters/cursor/index.js';
+import { geminiCliIntegration } from './adapters/gemini-cli/index.js';
+import { claudeCodeIntegration } from './adapters/claude-code/index.js';
+import { antigravityCliIntegration } from './adapters/antigravity-cli/index.js';
 
 /** Frozen registry — order determines setup presentation. */
 export const AGENT_INTEGRATIONS: readonly AgentIntegration[] = Object.freeze([
   opencodeIntegration,
   clineIntegration,
   cursorIntegration,
+  geminiCliIntegration,
+  claudeCodeIntegration,
+  antigravityCliIntegration,
 ]);
 
 export function findIntegration(id: string): AgentIntegration | undefined {

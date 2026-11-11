@@ -19,11 +19,11 @@ import {
   confirm,
   intro,
   isCancel,
-  multiselect,
   outro,
   select,
   log,
 } from '@clack/prompts';
+import { emitKeypressEvents } from 'node:readline';
 import type { SetupContext, SetupEnv } from './types.js';
 import { AGENT_INTEGRATIONS, findIntegration } from './registry.js';
 
@@ -295,25 +295,134 @@ async function selectAgents(env: SetupEnv): Promise<string[]> {
     return [];
   }
 
-  const answer = await multiselect({
-    message: 'Select the agent(s) to configure:',
-    options: discoveries.map((d) => {
-      const installed = d.result.state !== 'not_installed' && d.result.state !== 'configuration_error';
-      return {
-        label: `${d.integration.displayName} (${d.integration.id}) — ${d.result.state}`,
-        value: d.integration.id,
-        hint: installed ? '' : d.result.state === 'not_installed' ? 'not installed on PATH' : 'invalid config',
-        disabled: !installed,
-      };
-    }),
-    required: false,
+  const options = discoveries.map((d) => {
+    const installed = d.result.state !== 'not_installed' && d.result.state !== 'configuration_error';
+    return {
+      label: `${d.integration.displayName} (${d.integration.id}) — ${d.result.state}`,
+      value: d.integration.id,
+      hint: installed ? '' : d.result.state === 'not_installed' ? 'not installed on PATH' : 'invalid config',
+      disabled: !installed,
+    };
   });
 
-  if (isCancel(answer)) {
-    cancel('Setup cancelled.');
-    process.exitCode = 0;
-    return [];
-  }
+  return runMultiselect(options);
+}
 
-  return answer as string[];
+/**
+ * Custom multiselect TUI that renders a `>` prefix before the active (highlighted)
+ * item so the current position is obvious on every terminal, not just via color.
+ */
+function runMultiselect(options: Array<{ label: string; value: string; hint?: string; disabled: boolean }>): Promise<string[]> {
+  return new Promise((resolve) => {
+    let activeIndex = 0;
+    const selected = new Set<string>();
+    let renderedLineCount = 0;
+    let done = false;
+
+    const supportsColor = process.stdout.isTTY && !process.env.NO_COLOR;
+    const c = (str: string, code: string) => (supportsColor ? `${code}${str}\x1b[0m` : str);
+    const localColor = {
+      red: (s: string) => c(s, '\x1b[31m'),
+      green: (s: string) => c(s, '\x1b[32m'),
+      yellow: (s: string) => c(s, '\x1b[33m'),
+      blue: (s: string) => c(s, '\x1b[34m'),
+      magenta: (s: string) => c(s, '\x1b[35m'),
+      cyan: (s: string) => c(s, '\x1b[36m'),
+      gray: (s: string) => c(s, '\x1b[90m'),
+      bold: (s: string) => c(s, '\x1b[1m'),
+    } as const;
+
+    emitKeypressEvents(process.stdin);
+    if (process.stdin.isTTY) process.stdin.setRawMode(true);
+
+    const cleanup = () => {
+      if (process.stdin.isTTY) process.stdin.setRawMode(false);
+      process.stdin.removeAllListeners('keypress');
+      process.stdout.write('\x1b[?25h'); // show cursor
+    };
+
+    const render = () => {
+      if (done) return;
+
+      let output = '\x1b[?25l'; // hide cursor
+
+      // Move cursor up to start of our list (skip on first render)
+      if (renderedLineCount > 0) {
+        output += `\x1b[${renderedLineCount}A`;
+      }
+
+      output += `${localColor.blue('◆')} Select the agent(s) to configure:\r\n`;
+
+      for (let i = 0; i < options.length; i++) {
+        const opt = options[i];
+        const isActive = i === activeIndex;
+        const isSelected = selected.has(opt.value);
+
+        // Return to column 0, then clear the whole line
+        output += '\r\x1b[2K';
+
+        // Active indicator: `>` for the highlighted item, two spaces otherwise
+        output += isActive ? localColor.cyan('> ') : '  ';
+
+        // Checkbox state
+        if (opt.disabled) {
+          output += localColor.gray('[□] ');
+        } else {
+          output += isSelected ? localColor.green('[■] ') : localColor.gray('[□] ');
+        }
+
+        // Label
+        if (opt.disabled) {
+          output += localColor.gray(opt.label);
+        } else {
+          output += opt.label;
+        }
+
+        // Hint (shown for disabled items)
+        if (opt.hint) {
+          output += ` ${localColor.gray(opt.hint)}`;
+        }
+
+        output += '\r\n';
+      }
+
+      // Blank line + footer hint
+      output += `\r\n${localColor.gray('↑/↓ to navigate • Space: select • Enter: confirm')}\r\n`;
+      output += '\x1b[?25h'; // show cursor
+
+      renderedLineCount = 1 + options.length + 2; // header + items + blank + footer
+      process.stdout.write(output);
+    };
+
+    process.stdin.on('keypress', (_str, key) => {
+      if (done) return;
+
+      if (key.name === 'up') {
+        activeIndex = (activeIndex - 1 + options.length) % options.length;
+        render();
+      } else if (key.name === 'down') {
+        activeIndex = (activeIndex + 1) % options.length;
+        render();
+      } else if (key.name === 'space') {
+        const opt = options[activeIndex];
+        if (!opt.disabled) {
+          if (selected.has(opt.value)) selected.delete(opt.value);
+          else selected.add(opt.value);
+        }
+        render();
+      } else if (key.name === 'return' || key.name === 'enter') {
+        done = true;
+        cleanup();
+        resolve(Array.from(selected) as string[]);
+      } else if (key.ctrl && key.name === 'c') {
+        done = true;
+        cleanup();
+        cancel('Setup cancelled.');
+        process.exitCode = 0;
+        resolve([]);
+      }
+    });
+
+    render();
+  });
 }

@@ -1,9 +1,13 @@
 /**
  * Cursor agent integration (plan §10.2–§10.5, D-021/D-022).
  *
- * Cursor's integration surface is MCP stdio servers only (no lifecycle plugin
- * API). This adapter wires discovery, the JSONC merge planner, validation,
- * and uninstall into the AgentIntegration interface.
+ * Cursor's integration surface is MCP stdio servers plus a lifecycle plugin
+ * installed in `~/.cursor/plugins/local/workjournal/`. The plugin observes
+ * Cursor session lifecycle and tool events via Cursor's hook system (external
+ * commands) and POSTs canonical ledger envelopes to Core's POST
+ * /api/ingest/events. This adapter wires discovery, the JSONC merge planner,
+ * plugin extraction, validation, rollback, and uninstall into the
+ * AgentIntegration interface.
  */
 
 import { join } from 'node:path';
@@ -32,6 +36,7 @@ import {
 import { workjournalMcpCommand } from '../../command.js';
 import { discoverCursor, isValidCursorEntry, resolveCursorPaths } from './discovery.js';
 import { planCursor } from './merge.js';
+import { cursorPluginVersion } from './plugin.generated.js';
 
 interface WrittenFile {
   path: string;
@@ -83,7 +88,22 @@ async function validateCursor(ctx: SetupContext) {
     }
   }
 
-  return { agentId: 'cursor', valid: configValid, details };
+  // The plugin lives in the global scope; a project setup reuses it rather
+  // than instrumenting the same session twice.
+  let pluginPresent = await fileExists(paths.pluginPath);
+  if (!pluginPresent && ctx.scope === 'project') {
+    const globalPlugin = resolveCursorPaths({ ...ctx, scope: 'global' }).pluginPath;
+    pluginPresent = await fileExists(globalPlugin);
+    if (pluginPresent) details.push(`plugin present (global): ${globalPlugin}`);
+  }
+  if (!pluginPresent) {
+    details.push(`plugin missing: ${paths.pluginPath}`);
+  } else if (ctx.scope === 'global') {
+    details.push(`plugin present: ${paths.pluginPath}`);
+  }
+
+  const valid = configValid && (ctx.scope === 'project' || pluginPresent);
+  return { agentId: 'cursor', valid, details };
 }
 
 export const cursorIntegration: AgentIntegration = {
@@ -92,8 +112,8 @@ export const cursorIntegration: AgentIntegration = {
   supportedPlatforms: ['win32', 'darwin', 'linux'],
   capabilities: {
     mcp: true,
-    lifecyclePlugin: false,
-    hooks: [],
+    lifecyclePlugin: true,
+    hooks: ['beforeSubmitPrompt', 'stop', 'afterFileEdit'],
   },
 
   discover(env: SetupEnv): Promise<DiscoveryResult> {
@@ -184,6 +204,15 @@ export const cursorIntegration: AgentIntegration = {
           await atomicWrite(paths.settingsPath, text);
           filesModified.push(paths.settingsPath);
         }
+      }
+    }
+
+    // Remove plugin artifacts when uninstalling globally.
+    if (ctx.scope === 'global') {
+      const pluginDir = join(paths.pluginPath, '..');
+      const removable = [paths.pluginPath, join(pluginDir, 'hooks', 'workjournal-hooks.json'), join(pluginDir, 'hooks', 'ingest.js')];
+      for (const file of removable) {
+        if (await removeFileIfExists(file)) filesModified.push(file);
       }
     }
 

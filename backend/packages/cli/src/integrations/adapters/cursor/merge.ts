@@ -1,9 +1,11 @@
 /**
- * Cursor MCP settings merge (plan §10.3–§10.4, D-021).
+ * Cursor MCP settings merge + lifecycle plugin (plan §10.3–§10.4, D-021/D-024).
  *
  * Cursor stores stdio servers as `mcpServers.<name>` with `type: "stdio"`,
- * `command`, and `args`. Cursor has no lifecycle plugin API, so setup installs
- * only the MCP server entry — no plugin artifacts.
+ * `command`, and `args`. Cursor plugins live in `~/.cursor/plugins/local/<plugin-name>/`
+ * with a `plugin.json` manifest plus hook configs and an ingest script. Setup
+ * installs the MCP server entry and, in global scope, the lifecycle plugin
+ * artifacts that observe Cursor session lifecycle and tool events.
  */
 
 import { existsSync, promises as fs } from 'node:fs';
@@ -15,9 +17,16 @@ import {
   isPlainObject,
   readConfigFile,
   setJsoncValue,
+  sha256Hex,
 } from '../../safe-config.js';
 import { isWorkjournalCommand, workjournalMcpCommand } from '../../command.js';
 import { resolveCursorPaths } from './discovery.js';
+import {
+  cursorPluginSource,
+  createCursorHooksConfig,
+  cursorPluginManifest,
+  cursorPluginVersion,
+} from './plugin.generated.js';
 
 export function desiredCursorMcpEntry(): Record<string, unknown> {
   const command = workjournalMcpCommand();
@@ -121,6 +130,35 @@ export async function planCursor(ctx: SetupContext): Promise<ConfigPlan> {
     key: 'mcpServers.workjournal',
     value: JSON.stringify(desired),
   });
+
+  // The plugin is workspace-aware (it scopes events by the session directory),
+  // so a single global copy covers every project. Installing a second copy
+  // per project would instrument the same session twice.
+  if (ctx.scope === 'global') {
+    const pluginContent = ensureTrailingNewline(cursorPluginSource.trim());
+    const pluginHash = sha256Hex(pluginContent);
+    const hooksContent = JSON.stringify(createCursorHooksConfig(paths.pluginDir), null, 2) + '\n';
+    const manifestContent = JSON.stringify(cursorPluginManifest, null, 2) + '\n';
+
+    const hooksDir = join(paths.pluginPath, '..', 'hooks');
+    files.push(
+      await plannedFile(paths.pluginPath, manifestContent),
+      await plannedFile(join(hooksDir, 'workjournal-hooks.json'), hooksContent),
+      await plannedFile(join(hooksDir, 'ingest.js'), pluginContent),
+    );
+    managedEntries.push(
+      { file: paths.pluginPath, key: 'plugin', value: paths.pluginPath },
+      { file: join(hooksDir, 'workjournal-hooks.json'), key: 'sha256', value: pluginHash },
+    );
+  } else {
+    const globalPlugin = resolveCursorPaths({ ...ctx, scope: 'global' }).pluginPath;
+    if (!existsSync(globalPlugin)) {
+      warnings.push(
+        `Lifecycle plugin not installed at ${globalPlugin}. ` +
+          'Run `workjournal setup --agent cursor --global` once; project setup does not duplicate it.',
+      );
+    }
+  }
 
   return { ...basePlan, files, managedEntries, warnings };
 }
