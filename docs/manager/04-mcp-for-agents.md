@@ -91,11 +91,35 @@ adapter, and dashboard.
 `record_checkpoint`, and all `report_*` telemetry tools. Their functions are
 absorbed into the 7 tools above or exposed via the HTTP API/dashboard instead.
 
+## 4.5 Resource catalog (read-only, cache-friendly)
+
+Resources are read-only views over data agents already access via tools.
+MCP clients can cache them, so repeated reads don't hit the core service.
+No idempotency key, agent_id, or project_id needed — the adapter resolves
+those from session state.
+
+| # | URI | What it returns |
+|---|-----|-----------------|
+| 1 | `workjournal://session/current` | Session state: current task id, version, agent id, project id. No core call — reads from adapter session memory. |
+| 2 | `workjournal://tasks/current` | Full details of the current task (reads current task id from session state, then one core GET). |
+| 3 | `workjournal://resume/{task_id}` | Deterministic resume context: objective, status, latest checkpoint, active decisions, open issues, recent events. One core GET /api/resume. |
+| 4 | `workjournal://tasks/list` | Actionable tasks + count summary (open, in_progress, interrupted) for the current project. One core GET /api/tasks + counts. |
+| 5 | `workjournal://tasks/{task_id}` | Fetch a single task by ID. One core GET /api/tasks/:id. |
+| 6 | `workjournal://history/{task_id}` | Append-only event history for a task (creation, claims, transitions, checkpoints, decisions). One core GET /api/events. |
+
+**When to use a resource vs a tool:** Use resources for read-only lookups
+(resume context, task details, history, session state). Use tools for
+anything that mutates state (create, claim, transition, checkpoint, decision).
+Resources never mutate state.
+
 ## 5. A typical agent session (happy path)
 
-1. `start_session` → see what's active, project stats, and your in-progress tasks.
-2. `get_resume_context { task_id }` → deterministic brief (never trust remembered state).
-3. `start_session(task_id, claim=true)` → claim an open/interrupted task (ownership assigned).
+1. Read `workjournal://session/current` → see your current task (if any).
+   Or call `start_session` → see what's active, project stats, in-progress tasks.
+2. Read `workjournal://resume/{task_id}` → deterministic brief (never trust
+   remembered state). Or call `get_resume_context { task_id }`.
+3. Call `start_session(task_id, claim=true)` → claim an open/interrupted task
+   (ownership assigned).
 4. Work; `checkpoint` often (pin to the version read).
 5. `record_decision` for real choices (+ rationale + rejected alternatives).
 6. `update_task(status="completed")` (or `update_task(status="blocked", reason="…")` /
