@@ -171,22 +171,42 @@ export function registerResources(server: McpServer, coreUrl: string, serverInst
           return errorResource(RESOURCE_URIS.tasksList, 'NO_PROJECT', 'No project found', 'Run workjournal init in your project root or set WORKJOURNAL_PROJECT_ID');
         }
 
-        // Fetch counts + actionable tasks in parallel
+        // Fetch counts + all actionable tasks in 2 parallel calls
         const [countsRes, tasksRes] = await Promise.all([
           callCore(coreUrl, 'GET', `/api/tasks/counts${buildQueryString({ project_id: projectId, agentCall: true })}`),
-          callCore(coreUrl, 'GET', `/api/tasks${buildQueryString({ project_id: projectId, status: 'in_progress', agentCall: true })}`),
+          callCore(coreUrl, 'GET', `/api/tasks${buildQueryString({ project_id: projectId, agentCall: true })}`),
         ]);
 
         const counts = countsRes as Record<string, number>;
-        const inProgressTasks = Array.isArray(tasksRes) ? tasksRes : (tasksRes as any).tasks || [];
+        const allTasks = Array.isArray(tasksRes) ? tasksRes : (tasksRes as any).tasks || [];
 
-        // Also fetch interrupted + open for a complete actionable view
-        const [interruptedRes, openRes] = await Promise.all([
-          callCore(coreUrl, 'GET', `/api/tasks${buildQueryString({ project_id: projectId, status: 'interrupted', agentCall: true })}`),
-          callCore(coreUrl, 'GET', `/api/tasks${buildQueryString({ project_id: projectId, status: 'open', agentCall: true })}`),
-        ]);
-        const interruptedTasks = Array.isArray(interruptedRes) ? interruptedRes : (interruptedRes as any).tasks || [];
-        const openTasks = Array.isArray(openRes) ? openRes : (openRes as any).tasks || [];
+        // Sort client-side: in_progress (owned by this agent first), then interrupted, then open by priority
+        const agentId = getAgentId(serverInstance);
+        const priorityOrder = { high: 0, medium: 1, low: 2 };
+        const sorted = [...allTasks].sort((a, b) => {
+          const aStatus = a.status;
+          const bStatus = b.status;
+          const statusRank = { in_progress: 0, interrupted: 1, open: 2 };
+          const ar = statusRank[aStatus as keyof typeof statusRank] ?? 99;
+          const br = statusRank[bStatus as keyof typeof statusRank] ?? 99;
+          if (ar !== br) return ar - br;
+          // Within in_progress: agent's own tasks first
+          if (aStatus === 'in_progress' && bStatus === 'in_progress') {
+            const aOwner = a.owner === agentId ? 0 : 1;
+            const bOwner = b.owner === agentId ? 0 : 1;
+            if (aOwner !== bOwner) return aOwner - bOwner;
+          }
+          // Within same status: priority high→low
+          return (priorityOrder[a.priority as keyof typeof priorityOrder] ?? 1) -
+                 (priorityOrder[b.priority as keyof typeof priorityOrder] ?? 1);
+        });
+
+        const byStatus = { in_progress: [] as any[], interrupted: [] as any[], open: [] as any[] };
+        for (const t of sorted) {
+          if (t.status === 'in_progress') byStatus.in_progress.push(t);
+          else if (t.status === 'interrupted') byStatus.interrupted.push(t);
+          else if (t.status === 'open') byStatus.open.push(t);
+        }
 
         return {
           contents: [
@@ -197,9 +217,9 @@ export function registerResources(server: McpServer, coreUrl: string, serverInst
                 projectId,
                 counts,
                 tasks: {
-                  in_progress: inProgressTasks.map((t: any) => ({ id: t.id, title: t.title, status: t.status, priority: t.priority, owner: t.owner })),
-                  interrupted: interruptedTasks.map((t: any) => ({ id: t.id, title: t.title, status: t.status, priority: t.priority, owner: t.owner })),
-                  open: openTasks.map((t: any) => ({ id: t.id, title: t.title, status: t.status, priority: t.priority, owner: t.owner })),
+                  in_progress: byStatus.in_progress.map((t: any) => ({ id: t.id, title: t.title, status: t.status, priority: t.priority, owner: t.owner })),
+                  interrupted: byStatus.interrupted.map((t: any) => ({ id: t.id, title: t.title, status: t.status, priority: t.priority, owner: t.owner })),
+                  open: byStatus.open.map((t: any) => ({ id: t.id, title: t.title, status: t.status, priority: t.priority, owner: t.owner })),
                 },
               }, null, 2),
             },
