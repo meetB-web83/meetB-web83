@@ -32,8 +32,7 @@ reading about it. References point back into this pack.
 
 - [ ] Adapter config points at the running core (`WORKJOURNAL_CORE_URL` or
       default); tools list loads in the MCP client.
-- [ ] `get_dashboard` → `get_resume_context` → `claim_task` → checkpoint →
-      decision → `complete_task` round-trips on a scratch task.
+- [ ] `start_session` → `get_resume_context` → `start_session(task_id, claim=true)` → checkpoint → decision → `update_task(status="completed")` round-trips on a scratch task.
 - [ ] Core stopped → tool call returns the actionable start-service error.
 - [ ] Same write replayed with same key + input → stored response, no
       duplicate; same key + changed input → `409`.

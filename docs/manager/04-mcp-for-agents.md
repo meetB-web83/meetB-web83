@@ -36,7 +36,8 @@ transition function validates every status change. Events are append-only.
 **Entry points** (`backend/packages/mcp-adapter/`):
 
 - `src/index.ts` — spawns the stdio server (`McpServer name: workjournal`).
-- `src/tools/register.ts` — all ~19 tool definitions.
+- `src/tools/register.ts` — all 7 tool definitions (single canonical profile).
+- `src/tools/core-tools.ts` — the 7 merged agent workflow tools.
 - `src/tools/query.ts` — GET query-string builder (omits absent filters).
 - `src/client.ts` — loopback HTTP forwarder with actionable down-service error.
 - `workjournal-mcp.cmd` — Windows launcher for the adapter.
@@ -61,30 +62,45 @@ entry instead of `tsx`.)
 
 ## 4. Tool catalog (what an agent can do)
 
-| Group | Tools |
-|-------|-------|
-| Tasks | `create_task`, `get_task`, `list_tasks` (status/priority/limit/offset), `update_task` |
-| Claims & transitions | `claim_task`, `release_task`, `block_task`, `unblock_task`, `complete_task`, `cancel_task`, `mark_task_interrupted` |
-| Continuity | `record_checkpoint`, `record_decision`, `supersede_decision` |
-| Read-back | `get_task_history`, `get_resume_context`, `export_handoff` (json/markdown) |
-| Overview | `get_dashboard` (stats + recents + project list; `project_id` optional scope) |
+One canonical tool set — no profiles, no `WORKJOURNAL_TOOLS` env var, no
+duplicated names or schemas. Every tool auto-resolves `project_id` from the
+discovered project marker (or `WORKJOURNAL_PROJECT_ID`), derives its own
+idempotency key for writes, and tracks the current task in session state so
+agents rarely pass `agent_id`, `idempotency_key`, or `task_id`.
 
-**Contracts every write obeys:** an `idempotency_key` (retry-safe; conflicting
-reuse → `409 IDEMPOTENCY_KEY_CONFLICT`), the owner's `agent_id`
+| # | Tool | What it does |
+|---|------|--------------|
+| 1 | `start_session` | Begin or resume work. Returns your in_progress tasks, a resume brief for `task_id`, and project stats. With `task_id` + `claim=true`, claims ownership. |
+| 2 | `create_task` | Create a task (title, objective, acceptance, priority). Becomes the current task. Idempotency key auto-derived. |
+| 3 | `update_task` | **Single tool for all status changes** — `in_progress` (claim), `open` (release/unblock), `blocked`, `interrupted`, `completed`, `cancelled` — plus field edits (title/objective/acceptance/priority). Replaces the old split tools (`claim_task`, `block_task`, `complete_task`, etc.). |
+| 4 | `checkpoint` | Record a progress checkpoint (summary, next_steps, done, findings, issues, files). Call after each meaningful step. |
+| 5 | `record_decision` | Record a design decision. Pass `supersedes=<decision id>` to replace an earlier decision (keeps the old record marked superseded). |
+| 6 | `get_resume_context` | Deterministic resume brief: objective, status, latest checkpoint, active decisions, open issues, recent events. Pass `include_history=true` to append recent event history. |
+| 7 | `list_tasks` | Browse tasks with `status`/`priority`/`limit` filters. Defaults to actionable tasks (open, interrupted, in_progress). Pass `task_id` to fetch a single task (replaces `get_task`). |
+
+**Contracts every write obeys:** an idempotency key (auto-derived; retry-safe;
+conflicting reuse → `409 IDEMPOTENCY_KEY_CONFLICT`), the owner's `agent_id`
 (`<agent-string>_<project-id>`), and the `expected_version` last read (stale →
 `409 STALE_VERSION`). Reads need no key. Full shapes live in
 `backend/packages/shared/src/schemas/` — the single definition shared by API,
 adapter, and dashboard.
 
+**Dropped from MCP:** `get_task`, `get_task_history`, `get_dashboard`,
+`export_handoff`, `claim_task`, `release_task`, `block_task`, `unblock_task`,
+`complete_task`, `cancel_task`, `mark_task_interrupted`, `supersede_decision`,
+`record_checkpoint`, and all `report_*` telemetry tools. Their functions are
+absorbed into the 7 tools above or exposed via the HTTP API/dashboard instead.
+
 ## 5. A typical agent session (happy path)
 
-1. `get_dashboard` → see what's active. 2. `get_resume_context { task_id }` →
-   deterministic brief (never trust remembered state). 3. `claim_task` (open →
-   in_progress, ownership assigned). 4. Work; `record_checkpoint` often (pin to
-   the version read). 5. `record_decision` for real choices (+ rationale +
-   rejected alternatives). 6. `complete_task` (or `block_task` with reason /
-   `mark_task_interrupted` if the attempt ends). 7. Next session starts at step
-   1–2 — no transcript required.
+1. `start_session` → see what's active, project stats, and your in-progress tasks.
+2. `get_resume_context { task_id }` → deterministic brief (never trust remembered state).
+3. `start_session(task_id, claim=true)` → claim an open/interrupted task (ownership assigned).
+4. Work; `checkpoint` often (pin to the version read).
+5. `record_decision` for real choices (+ rationale + rejected alternatives).
+6. `update_task(status="completed")` (or `update_task(status="blocked", reason="…")` /
+   `update_task(status="interrupted", reason="…")` if the attempt ends).
+7. Next session starts at step 1–2 — no transcript required.
 
 ## 6. Reviewer spot-checks
 

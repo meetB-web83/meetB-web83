@@ -1,8 +1,14 @@
 # M15 — Agent-Facing MCP Surface (Core Profile)
 
-**Status:** Draft for implementation  
+**Status:** Superseded by D-035 — see `docs/decisions.md`.  
 **Date:** 2026-11-03  
-**Decisions:** D-032 (core profile is default agent-facing surface)
+**Decisions:** D-032 (core profile is default agent-facing surface) → superseded by D-035.
+
+---
+
+**Current state (per D-035):** The `core`/`full`/`core+ledger` tool profile split and the `WORKJOURNAL_TOOLS` env var are removed. All agent workflow tools are merged into one canonical set of 7 tools registered unconditionally: `start_session`, `create_task`, `update_task`, `checkpoint`, `record_decision`, `get_resume_context`, `list_tasks`. `full-tools.ts` and `ledger-tools.ts` are deleted.
+
+This spec remains as a reference for the original design intent; the implementation in `packages/mcp-adapter/src/tools/core-tools.ts` is authoritative.
 
 ---
 

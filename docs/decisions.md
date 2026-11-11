@@ -568,7 +568,7 @@ Detection uses `resolveCommandPath('cursor-agent')`; discovery reports `not_inst
 
 ---
 
-## D-032 — Core profile is the default agent-facing MCP surface (2026-11-03)
+## D-032 — Core profile is the default agent-facing MCP surface (2026-11-03) — SUPERSEDED by D-035
 
 **Decision.** The default MCP tool surface exposed by the adapter (`WORKJOURNAL_TOOLS=core`, env default) is a new 6-tool agent-centric profile: `start_session`, `create_task`, `update_task`, `checkpoint`, `record_decision`, `get_resume_context`. The existing 17-tool MVP spec surface and 9 ledger tools remain available under `WORKJOURNAL_TOOLS=full` and `WORKJOURNAL_TOOLS=core+ledger` respectively. This deliberately departs from scope section 11 for the default surface. Authorized by meetb in-session.
 
@@ -610,3 +610,13 @@ Supersedes the "no lifecycle plugin" clause of D-031 for Cursor. Cursor remains 
 **Reason.** Cursor's plugin system (`~/.cursor/plugins/local/` with `plugin.json` and hook-based external commands) was verified against the official Cursor Plugins schema and cookbook. Adding lifecycle event observation brings Cursor parity with OpenCode and Cline for session continuity and per-tool activity tracking.
 
 **Status.** Implemented 2026-11-04; `packages/cli` typecheck and lint clean; `tests/integration/agent-integration.test.ts` 24/24 green (cursor cursor tests pass).
+
+---
+
+## D-035 — Single canonical MCP tool set; remove `WORKJOURNAL_TOOLS` profile split (2026-11-11)
+
+**Decision.** The `core`/`full`/`core+ledger` tool profile split and the `WORKJOURNAL_TOOLS` env var are removed. All agent workflow tools are merged into one canonical set of 7 tools registered unconditionally: `start_session`, `create_task`, `update_task`, `checkpoint`, `record_decision`, `get_resume_context`, `list_tasks`. Deleted `packages/mcp-adapter/src/tools/full-tools.ts` and `packages/mcp-adapter/src/tools/ledger-tools.ts`. Simplified `register.ts`, `config.ts`, `stdio.ts`, `server-factory.ts`, `autostart.ts`, `http-server.ts` — no more `toolProfile` parameter.
+
+**Reason.** The profile split created cognitive load and token waste: agents had to learn two vocabularies (e.g. `update_task(status=...)` vs `claim_task`/`block_task`/`complete_task`), the same action had different names across profiles (`checkpoint` vs `record_checkpoint`), and the `full` profile's 26-tool surface (~8,846 tokens) exceeded the token budget. A single 7-tool set gives agents one vocabulary, no profile confusion, and no unused telemetry tools in the model's view.
+
+**Supersedes.** D-032 (core profile default) and D-033 (list_tasks as 7th core tool) — both are now moot; there is only one profile.
