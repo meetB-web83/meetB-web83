@@ -21,19 +21,27 @@ const mcpLogger = new Proxy({} as ReturnType<typeof createLogger>, {
  * Every tool name and parameter name mentioned here must exist in the
  * registered core-tool schemas.
  */
-export const MCP_SERVER_INSTRUCTIONS = `WorkJournal keeps task progress across agent sessions so another agent can continue without the original conversation. Use it for any multi-step coding work, before you edit files.
+export const MCP_SERVER_INSTRUCTIONS = `WorkJournal keeps task progress across agent sessions. Use it for multi-step work, before editing files.
 
 Flow:
-1. Start: call start_session. To browse tasks, call list_tasks. If a task for this work is in_progress or interrupted, resume it with start_session(task_id, claim=true); the brief shows where it stopped.
-2. New work: create_task with a clear objective and acceptance criteria, then update_task(status="in_progress") to claim it before editing anything. create_task does not claim by itself. If you already have several tasks planned, call create_task for each one up front so you don't need to keep track of what to do next.
-3. While working: after each meaningful step (a feature works, a bug is diagnosed, tests pass) call checkpoint with done, findings, issues and next_steps.
-4. Choices others must follow: record_decision with the rationale. To replace an earlier one, pass supersedes.
-5. Scope changes or new acceptance criteria: update_task with the new objective or criteria.
-6. Before you stop, or if you are stuck: checkpoint first, then update_task with status="blocked" or "interrupted" and a reason.
-7. When the acceptance criteria are met: update_task(status="completed").
-8. After your context is compacted or you lose track: get_resume_context.
+1. Start: call start_session. Browse tasks with list_tasks. Resume with start_session(task_id, claim=true).
+2. New work: create_task, then update_task(status="in_progress") to claim before editing.
+3. While working: checkpoint after each meaningful step and before stopping.
+4. Choices: record_decision with rationale. To replace one, pass supersedes.
+5. Status changes: update_task(status="in_progress"|"open"|"blocked"|"interrupted"|"completed"|"cancelled").
+6. Before stopping: checkpoint, then update_task(status="blocked"|"interrupted") with reason.
+7. Done: update_task(status="completed").
+8. Lost track: get_resume_context.
 
-Rules: one task at a time; never edit files for a task you have not claimed; never invent ids, use the ones returned; if a call fails, the error says how to fix it.`;
+Rules: one task at a time; never edit files for an unclaimed task; never invent ids; if a call fails, the error says how to fix it.
+
+Resources (read-only, cache-friendly — read instead of calling a tool):
+- workjournal://session/current — session state (task id, version, agent id, project id). No core call.
+- workjournal://tasks/current — full details of your current task.
+- workjournal://resume/{task_id} — deterministic resume context for any task.
+- workjournal://tasks/list — actionable tasks + count summary for your project.
+- workjournal://tasks/{task_id} — fetch a single task by ID.
+- workjournal://history/{task_id} — append-only event history for a task.`;
 
 /**
  * Single place where the MCP server is created and tools are registered, so
@@ -62,6 +70,11 @@ export async function createMcpServer(
   // syncPrompts, because capabilities cannot be added after connect().
   // Later registerPrompt() calls would throw if this is missing.
   server.server.registerCapabilities({ prompts: { listChanged: true } });
+
+  // Register the resources capability so MCP clients can discover and read
+  // workjournal:// resources. Resources are static URI templates; listChanged
+  // is not needed because they never change at runtime.
+  server.server.registerCapabilities({ resources: { listChanged: false } });
 
   try {
     const registered = await syncPrompts(server, coreUrl, projectId ?? process.env.WORKJOURNAL_PROJECT_ID);
