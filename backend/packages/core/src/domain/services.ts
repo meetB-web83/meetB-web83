@@ -1,6 +1,8 @@
 ﻿import type { TaskService } from './task-service.js';
 import type { ProjectService } from './project-service.js';
 import type { CheckpointService } from './checkpoint-service.js';
+import type { SnapshotService } from './snapshot-service.js';
+import type { RollbackService } from './rollback-service.js';
 import type { DecisionService } from './decision-service.js';
 import type { EventService } from './event-service.js';
 import type { ResumeBuilder } from '../resume/resume-builder.js';
@@ -13,6 +15,8 @@ export interface Services {
   tasks: TaskService;
   projects: ProjectService;
   checkpoints: CheckpointService;
+  snapshots: SnapshotService;
+  rollback: RollbackService;
   decisions: DecisionService;
   events: EventService;
   resume: ResumeBuilder;

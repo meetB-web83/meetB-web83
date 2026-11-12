@@ -28,6 +28,10 @@ export const checkpointResponseSchema = z.object({
   next_steps: z.string().nullable(),
   file_references: z.array(z.string()),
   created_at: z.string(),
+  /** Derived at read time from revert_applied events (Addendum B §B9) — never stored. */
+  rolled_back: z.boolean().optional(),
+  /** Reason of the rollback that covered this checkpoint (present when rolled_back). */
+  rolled_back_reason: z.string().nullable().optional(),
 });
 
 export const listCheckpointsQuerySchema = z.object({

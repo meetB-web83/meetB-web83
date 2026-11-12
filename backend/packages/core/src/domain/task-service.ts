@@ -5,6 +5,7 @@ import { SessionBindingService } from './session-binding-service.js';
 import { IdempotencyService, type IdempotencyOptions } from './idempotency-service.js';
 import { canTransition } from './transitions.js';
 import { toTaskRow } from './serialize.js';
+import { SnapshotService } from './snapshot-service.js';
 import {
   TaskStatus,
   ValidationError,
@@ -180,6 +181,7 @@ export class TaskService {
     idempotency?: MutationIdempotency,
     sessionId?: string | null,
     agentCall?: boolean,
+    rootPath?: string,
   ) {
     return this.idem.run(
       'idempotency_records',
@@ -217,7 +219,33 @@ export class TaskService {
           this.bindings.bind(sessionId, task.project_id, taskId, agentId);
         }
 
-        return this.getTask(taskId, agentCall);
+        // A3: baseline snapshot captured on claim. Git capture happens first, the
+        // snapshot row + snapshot_captured event commit in this same transaction.
+        // A degraded capture never blocks the claim.
+        let snapshot: any = null;
+        try {
+          const snapshots = new SnapshotService(this.db);
+          snapshot = snapshots.captureAndRecord({
+            taskId,
+            actor: agentId,
+            kind: 'baseline',
+            rootPath: rootPath ?? '',
+          });
+        } catch (err) {
+          this.events.recordEvent({
+            projectId: task.project_id,
+            taskId,
+            actor: agentId,
+            eventType: 'snapshot_failed',
+            payload: {
+              task_id: taskId,
+              kind: 'baseline',
+              capture_reason: err instanceof Error ? err.message : String(err),
+            },
+          });
+        }
+
+        return { ...this.getTask(taskId, agentCall), snapshot };
       },
     );
   }

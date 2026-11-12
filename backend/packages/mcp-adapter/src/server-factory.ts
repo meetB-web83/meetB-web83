@@ -33,15 +33,8 @@ Flow:
 7. Done: update_task(status="completed").
 8. Lost track: get_resume_context.
 
-Rules: one task at a time; never edit files for an unclaimed task; never invent ids; if a call fails, the error says how to fix it.
+Rules: one task at a time; never edit files for an unclaimed task; never invent ids; if a call fails, the error says how to fix it.`;
 
-Resources (read-only, cache-friendly — read instead of calling a tool):
-- workjournal://session/current — session state (task id, version, agent id, project id). No core call.
-- workjournal://tasks/current — full details of your current task.
-- workjournal://resume/{task_id} — deterministic resume context for any task.
-- workjournal://tasks/list — actionable tasks + count summary for your project.
-- workjournal://tasks/{task_id} — fetch a single task by ID.
-- workjournal://history/{task_id} — append-only event history for a task.`;
 
 /**
  * Single place where the MCP server is created and tools are registered, so
@@ -70,11 +63,6 @@ export async function createMcpServer(
   // syncPrompts, because capabilities cannot be added after connect().
   // Later registerPrompt() calls would throw if this is missing.
   server.server.registerCapabilities({ prompts: { listChanged: true } });
-
-  // Register the resources capability so MCP clients can discover and read
-  // workjournal:// resources. Resources are static URI templates; listChanged
-  // is not needed because they never change at runtime.
-  server.server.registerCapabilities({ resources: { listChanged: false } });
 
   try {
     const registered = await syncPrompts(server, coreUrl, projectId ?? process.env.WORKJOURNAL_PROJECT_ID);

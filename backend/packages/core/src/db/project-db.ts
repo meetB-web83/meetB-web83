@@ -100,6 +100,7 @@ export function readExistingProjectRow(
 
 export interface ProjectScope {
   projectId: string;
+  rootPath: string;
   db: Database;
 }
 
@@ -146,6 +147,12 @@ export class ProjectDbResolver {
     const db = this.open(projectId, dbPath);
     this.syncProjectRow(db, row);
     return db;
+  }
+
+  /** Root path of a registered project (for git snapshot capture). */
+  projectRootPath(projectId: string): string {
+    const row = this.projectRow(projectId);
+    return normalizeRootPath(row.root_path);
   }
 
   /** Locate the project DB that contains a task. Skips unavailable projects. */
@@ -216,7 +223,7 @@ export class ProjectDbResolver {
       const found = statement.get(id) as any;
       if (found) {
         this.syncProjectRow(db, row);
-        return { projectId: row.id, db };
+        return { projectId: row.id, rootPath: normalizeRootPath(row.root_path), db };
       }
     }
     return null;

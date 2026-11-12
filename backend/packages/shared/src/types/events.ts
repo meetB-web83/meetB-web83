@@ -39,6 +39,13 @@ export const EVENT_TYPES = [
   'verification_passed',
   'verification_failed',
   'verification_skipped',
+  // snapshots (Addendum A)
+  'snapshot_captured',
+  'snapshot_failed',
+  // reverts (Addendum A)
+  'revert_previewed',
+  'revert_applied',
+  'revert_rejected',
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -77,6 +84,13 @@ export const EVENT_CATEGORY_BY_TYPE = {
   verification_passed: 'verification',
   verification_failed: 'verification',
   verification_skipped: 'verification',
+  // snapshots (Addendum A)
+  snapshot_captured: 'task',
+  snapshot_failed: 'task',
+  // reverts (Addendum A)
+  revert_previewed: 'task',
+  revert_applied: 'task',
+  revert_rejected: 'task',
 } as const satisfies Record<EventType, EventCategory>;
 
 /**
@@ -120,6 +134,7 @@ const boundedText = (max: number) => z.string().min(1).max(max);
 
 const agentIdField = boundedText(200);
 const sessionIdField = boundedText(200);
+const snapshotKindField = z.enum(['baseline', 'checkpoint', 'safety', 'rollback']);
 const optionalDetail = boundedText(10000).optional();
 
 /**
@@ -276,6 +291,66 @@ export const eventPayloadSchemas = {
       agent_id: agentIdField,
       session_id: sessionIdField.optional(),
       summary: boundedText(2000).optional(),
+    })
+    .strict(),
+  // Snapshots (Addendum A) — never file contents or diffs.
+  snapshot_captured: z
+    .object({
+      snapshot_id: z.string(),
+      task_id: agentIdField,
+      kind: snapshotKindField,
+      commit_sha: boundedText(128),
+      ref_name: boundedText(200),
+      capture_status: z.enum(['ok', 'degraded']),
+      capture_reason: boundedText(2000).optional(),
+      insertions: z.number().int().nonnegative().optional(),
+      deletions: z.number().int().nonnegative().optional(),
+    })
+    .strict(),
+  snapshot_failed: z
+    .object({
+      task_id: agentIdField,
+      kind: snapshotKindField,
+      capture_reason: boundedText(2000),
+    })
+    .strict(),
+  // Reverts / rollbacks (Addendum A §A6, extended by Addendum B §B3–B5).
+  // revert_previewed is reserved: preview is a read with no idempotency key, so
+  // emitting it would be a keyless state change (root AGENTS.md invariant).
+  revert_previewed: z
+    .object({
+      snapshot_id: z.string().optional(),
+      task_id: agentIdField,
+      preview_id: z.string(),
+      path_count: z.number().int().nonnegative(),
+    })
+    .strict(),
+  revert_applied: z
+    .object({
+      task_id: agentIdField,
+      preview_id: z.string(),
+      target_snapshot_id: z.string(),
+      target_kind: snapshotKindField,
+      /** Snapshot the working tree was rolled back from. */
+      effective_snapshot_id: z.string(),
+      reason: boundedText(2000),
+      safety_snapshot_id: z.string(),
+      rollback_snapshot_id: z.string(),
+      reverted_path_count: z.number().int().nonnegative(),
+      deleted_path_count: z.number().int().nonnegative(),
+      skipped_path_count: z.number().int().nonnegative(),
+      failed_path_count: z.number().int().nonnegative(),
+      /** Partial application detail (spec §7.4); capped, empty on clean applies. */
+      failed_paths: z
+        .array(z.object({ path: z.string(), reason: z.string() }))
+        .max(200)
+        .optional(),
+    })
+    .strict(),
+  revert_rejected: z
+    .object({
+      task_id: agentIdField,
+      reason: boundedText(2000),
     })
     .strict(),
 } satisfies Record<EventType, z.ZodTypeAny>;

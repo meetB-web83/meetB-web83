@@ -23,6 +23,29 @@ export { TaskService, type CreateTaskData, type TaskUpdateData } from './domain/
 export { DashboardService } from './domain/dashboard-service.js';
 export { ProjectService } from './domain/project-service.js';
 export { CheckpointService } from './domain/checkpoint-service.js';
+export { SnapshotService } from './domain/snapshot-service.js';
+export {
+  RollbackService,
+  validateRelativePath,
+  assertPathInsideRoot,
+} from './domain/rollback-service.js';
+export {
+  getRollbackView,
+  annotateRollbackFlags,
+  rollbackByCheckpointMap,
+  type RollbackView,
+} from './domain/rollback-view.js';
+export {
+  captureWorkingTree,
+  diffRefs,
+  diffWorktreeVsRef,
+  diffRefVsHead,
+  patchRefs,
+  inspectRepo,
+  snapshotRefName,
+  isBinaryFile,
+  type SnapshotCaptureResult,
+} from './domain/git-snapshot.js';
 export { DecisionService } from './domain/decision-service.js';
 export { EventService, type RecordEventInput, type AppendEventInput, type AppendedEvent } from './domain/event-service.js';
 export { IngestService } from './domain/ingest-service.js';

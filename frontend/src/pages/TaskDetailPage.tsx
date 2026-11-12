@@ -5,11 +5,20 @@ import { StatusBadge } from '../components/ui/StatusBadge';
 import { PriorityBadge } from '../components/ui/PriorityBadge';
 import { Spinner } from '../components/ui/Spinner';
 import { TaskActions } from '../components/tasks/TaskActions';
+import { RollbackDialog, type ApplyResponse } from '../components/tasks/RollbackDialog';
 import { Button } from '../components/ui/Button';
 import { EventHistoryDialog } from '../components/ui/EventHistoryDialog';
 import { formatDateTime } from '../lib/format';
 import { api } from '../lib/api';
 import { useState, useEffect } from 'react';
+
+/** Latest `revert_applied` event flattened for the rollback banner/undo (B9). */
+interface LatestRollback {
+  at: string;
+  reason: string;
+  safetySnapshotId: string;
+  targetSnapshotId: string;
+}
 
 export function TaskDetailPage() {
   const { taskId } = useParams<{ taskId: string }>();
@@ -19,6 +28,9 @@ export function TaskDetailPage() {
   const [events, setEvents] = useState<any[]>([]);
   const [decisions, setDecisions] = useState<any[]>([]);
   const [showEvents, setShowEvents] = useState(false);
+  // Rollback dialog target (spec §B9): snapshot id + label, or null when closed.
+  const [rollbackDialog, setRollbackDialog] = useState<{ target: string; label: string; reason?: string } | null>(null);
+  const [rollbackNotice, setRollbackNotice] = useState('');
   // Task links carry { from: location } so "Back to Tasks" restores the exact
   // list URL (filters, page, view) instead of the bare project path.
   const backState = location.state as { from?: { pathname: string; search?: string } } | null;
@@ -40,6 +52,40 @@ export function TaskDetailPage() {
   };
 
   useEffect(() => { loadDetails(); }, [taskId]);
+
+  // Derived at read time from the event stream (append-only), newest first.
+  const revertEvents = events.filter((e) => e.event_type === 'revert_applied');
+  const lastRevert = revertEvents[revertEvents.length - 1];
+  const latestRollback: LatestRollback | null = lastRevert
+    ? {
+        at: lastRevert.created_at,
+        reason: String((lastRevert.payload as any)?.reason ?? ''),
+        safetySnapshotId: String((lastRevert.payload as any)?.safety_snapshot_id ?? ''),
+        targetSnapshotId: String((lastRevert.payload as any)?.target_snapshot_id ?? ''),
+      }
+    : null;
+
+  /** Resolve a checkpoint to its snapshot id, then open the preview dialog. */
+  const startRollbackToCheckpoint = async (cp: any) => {
+    setRollbackNotice('');
+    try {
+      const snaps = await api.get<any[]>(`/tasks/${taskId}/snapshots?limit=200`);
+      const snap = snaps.find((s) => s.checkpoint_id === cp.id);
+      if (!snap) {
+        setRollbackNotice(`No snapshot found for checkpoint ${cp.id} — it cannot be restored.`);
+        return;
+      }
+      setRollbackDialog({ target: snap.id, label: `checkpoint ${cp.id}` });
+    } catch (err) {
+      setRollbackNotice(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleRollbackApplied = (_result: ApplyResponse) => {
+    // Reload so checkpoint rolled-back flags and the undo banner reflect the
+    // new state; the dialog's done view keeps showing the safety snapshot.
+    loadDetails();
+  };
 
   if (loading) return <Spinner />;
   if (error || !task) return <div className="container"><p>Task not found.</p></div>;
@@ -91,7 +137,34 @@ export function TaskDetailPage() {
         <div className="task-detail-grid">
           {/* Checkpoints */}
           <div className="mt-md">
-            <h2 className="section-subtitle">Checkpoints</h2>
+            <div className="section-header-row">
+              <h2 className="section-subtitle">Checkpoints</h2>
+              {latestRollback && latestRollback.safetySnapshotId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setRollbackDialog({
+                      target: latestRollback.safetySnapshotId,
+                      label: 'safety snapshot (undo)',
+                      reason: `undo rollback ${latestRollback.at}`,
+                    })
+                  }
+                >
+                  Undo this rollback
+                </Button>
+              )}
+            </div>
+            {latestRollback && (
+              <div className="rollback-banner">
+                <strong>Working tree rolled back</strong> at {formatDateTime(latestRollback.at)}
+                {latestRollback.reason ? ` — ${latestRollback.reason}` : ''}
+                <div className="rollback-banner-meta">
+                  Undo target: safety snapshot <span className="code-tag">{latestRollback.safetySnapshotId}</span>
+                </div>
+              </div>
+            )}
+            {rollbackNotice && <p className="rollback-error">{rollbackNotice}</p>}
             {checkpoints.length === 0 ? (
               <div className="empty-box">No checkpoints recorded yet.</div>
             ) : (
@@ -100,9 +173,29 @@ export function TaskDetailPage() {
                   <Card key={cp.id} variant="light" className="timeline-item">
                     <div className="timeline-header">
                       <span className="timeline-date">{formatDateTime(cp.created_at)}</span>
+                      {cp.rolled_back && (
+                        <span
+                          className="rollback-badge"
+                          title={cp.rolled_back_reason ?? 'Covered by a rollback'}
+                        >
+                          Rolled back
+                        </span>
+                      )}
                     </div>
                     <p className="timeline-summary">{cp.progress_summary}</p>
+                    {cp.rolled_back && cp.rolled_back_reason && (
+                      <p className="rollback-note">Reason: {cp.rolled_back_reason}</p>
+                    )}
                     {cp.next_steps && <p className="timeline-next">Next: {cp.next_steps}</p>}
+                    <div className="timeline-actions">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => startRollbackToCheckpoint(cp)}
+                      >
+                        Roll back to here
+                      </Button>
+                    </div>
                   </Card>
                 ))}
               </div>
@@ -159,6 +252,18 @@ export function TaskDetailPage() {
           onClose={() => setShowEvents(false)}
           title="Task event history"
         />
+
+        {rollbackDialog && (
+          <RollbackDialog
+            taskId={taskId!}
+            open={!!rollbackDialog}
+            target={rollbackDialog.target}
+            targetLabel={rollbackDialog.label}
+            initialReason={rollbackDialog.reason}
+            onClose={() => setRollbackDialog(null)}
+            onApplied={handleRollbackApplied}
+          />
+        )}
       </div>
     </div>
   );

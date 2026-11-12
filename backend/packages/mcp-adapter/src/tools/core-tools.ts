@@ -27,6 +27,12 @@ const CORE_TOOL_DESCRIPTIONS = {
     'Get what another agent needs to continue: objective, status, last checkpoint, active decisions, open issues. detail=brief|full.',
   list_tasks:
     'See which tasks exist and which one to work on. Pass status/priority filters and limit. Defaults to actionable tasks (open, interrupted, in_progress).',
+  get_task_changes:
+    'Inspect what changed for a task: baseline→effective change set by default, any two snapshots, or live drift vs the worktree. Optional per-file diff/patch (size-capped, secret-filtered).',
+  preview_revert_task:
+    'Dry-run a revert/rollback: per-path plan (clean/restore/delete/changed-since/conflict/…) and a preview_id. Read-only — nothing is modified. target = baseline (default), a checkpoint id, or a safety snapshot id.',
+  revert_task_changes:
+    'Roll the working tree back to a target snapshot (baseline = whole-task revert). Needs preview_id from preview_revert_task, a required reason, and optionally force_paths for changed-since/conflict paths. Captures a safety snapshot first; idempotent.',
 } as const;
 
 function deriveIdempotencyKey(
@@ -858,6 +864,177 @@ export function registerCoreTools(server: McpServer, coreUrl: string, serverInst
           },
           nextActions,
         );
+      } catch (err) {
+        return errorResponse('INTERNAL', String(err), 'Check core service and retry');
+      }
+    },
+  );
+
+  // ---- get_task_changes (Addendum A §A5) -----------------------------------
+  server.registerTool(
+    'get_task_changes',
+    {
+      title: 'Get Task Changes',
+      description: CORE_TOOL_DESCRIPTIONS.get_task_changes,
+      inputSchema: {
+        task_id: z.string().optional().describe('Task to inspect (defaults to current)'),
+        comparison: z
+          .enum(['baseline_to_latest', 'snapshot_to_snapshot', 'vs_worktree', 'vs_head'])
+          .optional()
+          .describe('baseline_to_latest (default) uses the effective snapshot after rollbacks'),
+        from_snapshot: z.string().optional().describe('From snapshot id (snapshot_to_snapshot)'),
+        to_snapshot: z.string().optional().describe('To snapshot id (snapshot_to_snapshot)'),
+        include_diff: z.boolean().optional().describe('Include per-file diff text (secret-filtered)'),
+        include_patch: z.boolean().optional().describe('Include a full size-capped patch'),
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false },
+    },
+    async (args) => {
+      try {
+        const taskId = args.task_id ?? getCurrentTaskId(serverInstance);
+        if (!taskId) {
+          return errorResponse('NO_TASK', 'No task specified and no current task in session', 'Provide task_id or call start_session first');
+        }
+        const res = await callCore(
+          coreUrl,
+          'GET',
+          `/api/tasks/${encodeURIComponent(taskId)}/changes${buildQueryString({
+            task_id: taskId,
+            comparison: args.comparison,
+            from_snapshot_id: args.from_snapshot,
+            to_snapshot_id: args.to_snapshot,
+            include_diff: args.include_diff,
+            include_patch: args.include_patch,
+            agentCall: true,
+          })}`,
+        );
+        const r = res as any;
+        const lines = [
+          `${r.comparison}: ${r.changed_files?.length ?? 0} file(s) +${r.insertions ?? 0}/-${r.deletions ?? 0}`,
+          ...(r.changed_files ?? []).slice(0, 20).map((f: any) => `  ${f.status} ${f.path}`),
+        ];
+        if ((r.changed_files?.length ?? 0) > 20) lines.push(`  ... ${r.changed_files.length - 20} more`);
+        if (r.size_capped) lines.push('  [size-capped]');
+        return successResponse(lines.join('\n'), r as Record<string, unknown>, [
+          'Use preview_revert_task to plan a rollback.',
+        ]);
+      } catch (err) {
+        return errorResponse('INTERNAL', String(err), 'Check core service and retry');
+      }
+    },
+  );
+
+  // ---- preview_revert_task (A6/B) ------------------------------------------
+  server.registerTool(
+    'preview_revert_task',
+    {
+      title: 'Preview Revert',
+      description: CORE_TOOL_DESCRIPTIONS.preview_revert_task,
+      inputSchema: {
+        task_id: z.string().optional().describe('Task to preview (defaults to current)'),
+        target: z
+          .string()
+          .optional()
+          .describe("Snapshot id, or 'baseline' (default) for a whole-task revert"),
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false },
+    },
+    async (args) => {
+      try {
+        const taskId = args.task_id ?? getCurrentTaskId(serverInstance);
+        if (!taskId) {
+          return errorResponse('NO_TASK', 'No task specified and no current task in session', 'Provide task_id or call start_session first');
+        }
+        const agentId = getAgentId(serverInstance);
+        const res = await callCore(coreUrl, 'POST', `/api/tasks/${encodeURIComponent(taskId)}/revert/preview`, {
+          task_id: taskId,
+          agent_id: agentId,
+          target: args.target ?? 'baseline',
+          agentCall: true,
+        });
+        const r = res as any;
+        const s = r.summary ?? {};
+        const lines = [
+          `target ${r.target?.kind} seq ${r.target?.sequence} → from effective ${r.effective?.kind} seq ${r.effective?.sequence}`,
+          `plan: ${r.paths?.length ?? 0} path(s) — ${s.clean ?? 0} clean, ${s.restore ?? 0} restore, ${s.delete ?? 0} delete, ${s.missing ?? 0} missing, ${s['changed-since'] ?? 0} changed-since, ${s.conflict ?? 0} conflict, ${s['not-restorable'] ?? 0} not-restorable`,
+        ];
+        if ((r.skipped_by_default ?? []).length > 0) {
+          lines.push(`force_paths needed for: ${r.skipped_by_default.join(', ')}`);
+        }
+        lines.push(`preview_id: ${r.preview_id}`);
+        return successResponse(lines.join('\n'), r as Record<string, unknown>, [
+          'Call revert_task_changes with this preview_id and a reason.',
+        ]);
+      } catch (err) {
+        return errorResponse('INTERNAL', String(err), 'Check core service and retry');
+      }
+    },
+  );
+
+  // ---- revert_task_changes (A6/B) ------------------------------------------
+  server.registerTool(
+    'revert_task_changes',
+    {
+      title: 'Revert Task Changes',
+      description: CORE_TOOL_DESCRIPTIONS.revert_task_changes,
+      inputSchema: {
+        task_id: z.string().optional().describe('Task to roll back (defaults to current)'),
+        target: z
+          .string()
+          .optional()
+          .describe("Snapshot id, or 'baseline' (default) — must match the preview"),
+        preview_id: z.string().describe('preview_id returned by preview_revert_task'),
+        reason: z.string().min(1).max(2000).describe('Why this rollback is happening (required)'),
+        force_paths: z
+          .array(z.string())
+          .max(200)
+          .optional()
+          .describe('Explicit opt-in for changed-since/conflict paths'),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: true },
+    },
+    async (args) => {
+      try {
+        const taskId = args.task_id ?? getCurrentTaskId(serverInstance);
+        if (!taskId) {
+          return errorResponse('NO_TASK', 'No task specified and no current task in session', 'Provide task_id or call start_session first');
+        }
+        const agentId = getAgentId(serverInstance);
+        const version = getCurrentTaskVersion(serverInstance) ?? 0;
+        const target = args.target ?? 'baseline';
+        const idempotencyKey = deriveIdempotencyKey('revert_task_changes', taskId, version, {
+          target,
+          preview_id: args.preview_id,
+          reason: args.reason,
+          force_paths: args.force_paths ?? [],
+        });
+
+        const res = await callCore(coreUrl, 'POST', `/api/tasks/${encodeURIComponent(taskId)}/revert`, {
+          task_id: taskId,
+          agent_id: agentId,
+          target,
+          preview_id: args.preview_id,
+          reason: args.reason,
+          force_paths: args.force_paths,
+          idempotency_key: idempotencyKey,
+          agentCall: true,
+        });
+        const r = res as any;
+        const lines = [
+          `rolled back to ${r.target_kind} snapshot ${r.target_snapshot_id} (reason: ${args.reason})`,
+          `reverted ${r.reverted_paths?.length ?? 0}, deleted ${r.deleted_paths?.length ?? 0}, skipped ${r.skipped_paths?.length ?? 0}, failed ${r.failed_paths?.length ?? 0}`,
+          `safety snapshot: ${r.safety_snapshot_id}`,
+          `post-rollback snapshot: ${r.rollback_snapshot_id}`,
+        ];
+        if ((r.rolled_back_checkpoint_ids ?? []).length > 0) {
+          lines.push(`rolled-back checkpoints: ${r.rolled_back_checkpoint_ids.join(', ')}`);
+        }
+        if ((r.failed_paths ?? []).length > 0) {
+          lines.push(`FAILED: ${r.failed_paths.map((f: any) => f.path).join(', ')}`);
+        }
+        return successResponse(lines.join('\n'), r as Record<string, unknown>, [
+          `Undo: preview_revert_task(target=${r.safety_snapshot_id}) then apply with a reason.`,
+        ]);
       } catch (err) {
         return errorResponse('INTERNAL', String(err), 'Check core service and retry');
       }

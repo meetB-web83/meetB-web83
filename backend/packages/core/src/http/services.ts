@@ -2,6 +2,8 @@
 import { TaskService } from '../domain/task-service.js';
 import { ProjectService } from '../domain/project-service.js';
 import { CheckpointService } from '../domain/checkpoint-service.js';
+import { SnapshotService } from '../domain/snapshot-service.js';
+import { RollbackService } from '../domain/rollback-service.js';
 import { PromptService } from '../domain/prompt-service.js';
 import { ChangeBus } from '../domain/change-bus.js';
 import { DecisionService } from '../domain/decision-service.js';
@@ -27,6 +29,8 @@ export function buildServices(
     tasks: new TaskService(db),
     projects: new ProjectService(db, pathContext),
     checkpoints: new CheckpointService(db),
+    snapshots: new SnapshotService(db),
+    rollback: new RollbackService(db),
     decisions: new DecisionService(db),
     events: new EventService(db),
     resume: new ResumeBuilder(db),

@@ -2,6 +2,7 @@
 import type { Database } from '../db/connection.js';
 import { EventService } from './event-service.js';
 import { IdempotencyService, type IdempotencyOptions } from './idempotency-service.js';
+import { SnapshotService } from './snapshot-service.js';
 import { NotFoundError } from '@workjournal/shared';
 import { toCheckpointRow } from './serialize.js';
 
@@ -17,11 +18,15 @@ export interface CreateCheckpointData {
   nextSteps?: string;
   fileReferences?: string[];
   idempotency?: MutationIdempotency;
+  /** Project root path (for git snapshot capture). */
+  rootPath?: string;
 }
 
 /**
  * Checkpoint writes commit atomically with their `checkpoint_recorded` event and
  * their idempotency record. The task must exist; no versioning is enforced.
+ * A checkpoint snapshot is captured automatically (A3): git first, then the
+ * snapshot row + snapshot_captured event commit in this same transaction.
  */
 export class CheckpointService {
   private events: EventService;
@@ -72,7 +77,38 @@ export class CheckpointService {
           payload: { checkpoint_id: id, progress_summary: data.progressSummary },
         });
 
-        return this.getCheckpoint(id, agentCall);
+        // A3: checkpoint snapshot captured with every record_checkpoint.
+        let snapshot: any = null;
+        try {
+          const snapshots = new SnapshotService(this.db);
+          // Diff against the effective snapshot (B4): after a rollback the tree
+          // reflects the rollback snapshot, not the rolled-back checkpoints.
+          const previous = snapshots.getEffectiveSnapshot(data.taskId);
+          const baseline = snapshots.getBaselineSnapshot(data.taskId);
+          snapshot = snapshots.captureAndRecord({
+            taskId: data.taskId,
+            actor: data.agentId,
+            kind: 'checkpoint',
+            checkpointId: id,
+            rootPath: data.rootPath ?? '',
+            previousSnapshot: previous ?? undefined,
+            baselineSnapshot: baseline ?? undefined,
+          });
+        } catch (err) {
+          this.events.recordEvent({
+            projectId: task.project_id,
+            taskId: data.taskId,
+            actor: data.agentId,
+            eventType: 'snapshot_failed',
+            payload: {
+              task_id: data.taskId,
+              kind: 'checkpoint',
+              capture_reason: err instanceof Error ? err.message : String(err),
+            },
+          });
+        }
+
+        return { ...this.getCheckpoint(id, agentCall), snapshot };
       },
     );
   }

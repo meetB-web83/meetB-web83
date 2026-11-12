@@ -223,7 +223,15 @@ describe('HTTP layer round-trip', () => {
     const history = await server.inject({ method: 'GET', url: `/api/events?task_id=${task.id}` });
     expect(history.statusCode).toBe(200);
     const types = history.json().map((e: any) => e.event_type);
-    expect(types).toEqual(['task_created', 'task_claimed', 'checkpoint_recorded']);
+    // The test root is not a git repository, so snapshot capture degrades and records
+    // `snapshot_failed` without blocking the claim or checkpoint (Addendum A §A3).
+    expect(types).toEqual([
+      'task_created',
+      'task_claimed',
+      'snapshot_failed',
+      'checkpoint_recorded',
+      'snapshot_failed',
+    ]);
   });
 
   it('serializes JSON-text columns as parsed values on the wire', async () => {

@@ -2322,3 +2322,107 @@ select {
         grid-template-columns: 1fr;
     }
 }
+
+/* ---- Rollback to a checkpoint (Addendum B §B9) ---- */
+.section-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-sm);
+}
+.rollback-banner {
+    border: var(--border-thin);
+    background: var(--color-lilac);
+    padding: var(--spacing-sm) var(--spacing-md);
+    margin: var(--spacing-sm) 0 var(--spacing-md);
+    font-family: var(--font-sans);
+    font-size: 13px;
+}
+.rollback-banner-meta {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    margin-top: 4px;
+    color: var(--color-body);
+}
+.rollback-badge {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background: var(--color-orange);
+    color: var(--color-structural);
+    border: var(--border-thin);
+    padding: 2px 6px;
+    white-space: nowrap;
+}
+.rollback-note {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--color-body);
+    margin: 4px 0;
+}
+.timeline-actions {
+    margin-top: var(--spacing-sm);
+    display: flex;
+    gap: var(--spacing-sm);
+}
+.rollback-error {
+    color: var(--color-error);
+    background: var(--color-error-bg);
+    border: var(--border-thin);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    font-size: 13px;
+    margin: var(--spacing-sm) 0;
+}
+.rollback-plan-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-xs);
+    margin: var(--spacing-sm) 0;
+}
+.rollback-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+    gap: 1px;
+    background: var(--color-structural);
+    border: var(--border-thin);
+    margin: var(--spacing-sm) 0;
+}
+.rollback-summary-cell {
+    background: var(--color-surface-lowest);
+    padding: var(--spacing-sm);
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.rollback-summary-count {
+    font-family: var(--font-mono);
+    font-size: 20px;
+    font-weight: 700;
+}
+.rollback-summary-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-muted);
+}
+.rollback-paths {
+    border: var(--border-thin);
+    padding: var(--spacing-sm);
+    margin: var(--spacing-sm) 0;
+    font-size: 13px;
+}
+.rollback-paths ul {
+    margin: var(--spacing-xs) 0 0;
+    padding-left: 18px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    max-height: 160px;
+    overflow-y: auto;
+}
+.rollback-paths--warn {
+    background: var(--color-yellow);
+}
+.rollback-done p {
+    margin: var(--spacing-sm) 0;
+}

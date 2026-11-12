@@ -7,6 +7,7 @@ import {
 } from '@workjournal/shared';
 import { validateBody, validateQuery, operationInput } from '../hooks/validation.js';
 import { buildServices } from '../services.js';
+import { annotateRollbackFlags, getRollbackView } from '../../domain/rollback-view.js';
 
 export async function registerCheckpointRoutes(server: FastifyInstance) {
   server.post('/', { preHandler: [validateBody(createCheckpointSchema)] }, async (request, reply) => {
@@ -22,6 +23,7 @@ export async function registerCheckpointRoutes(server: FastifyInstance) {
       nextSteps: input.next_steps,
       fileReferences: input.file_references,
       idempotency: { key: input.idempotency_key, input: operationInput(input) },
+      rootPath: scope.rootPath,
     }, input.agentCall);
     return reply.status(201).send(checkpoint);
   });
@@ -29,7 +31,19 @@ export async function registerCheckpointRoutes(server: FastifyInstance) {
   server.get('/', { preHandler: [validateQuery(listCheckpointsQuerySchema)] }, async (request) => {
     const query = request.query as ListCheckpointsQuery & { agentCall?: boolean };
     const scope = server.projectDbs.forTask(query.task_id);
-    return buildServices(scope.db).checkpoints.listCheckpoints(query.task_id, query.limit, query.offset, query.agentCall);
+    const list = buildServices(scope.db).checkpoints.listCheckpoints(
+      query.task_id,
+      query.limit,
+      query.offset,
+      query.agentCall,
+    );
+    // Dashboard list gains derived rolled-back flags (Addendum B §B9).
+    // Agent projections stay minimal; the derivation is read-time only.
+    if (query.agentCall === true) return list;
+    return annotateRollbackFlags(
+      getRollbackView(scope.db, query.task_id),
+      list as Array<Record<string, any>>,
+    );
   });
 
   server.get('/:id', async (request) => {

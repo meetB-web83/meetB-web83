@@ -7,6 +7,10 @@ import {
   transitionTaskSchema,
   listTasksQuerySchema,
   taskCountsQuerySchema,
+  getTaskChangesQuerySchema,
+  listSnapshotsQuerySchema,
+  previewRevertTaskSchema,
+  revertTaskChangesSchema,
   CreateTaskInput,
   UpdateTaskInput,
   ClaimTaskInput,
@@ -14,6 +18,10 @@ import {
   TransitionTaskInput,
   ListTasksQuery,
   TaskCountsQuery,
+  GetTaskChangesQuery,
+  ListSnapshotsQuery,
+  PreviewRevertTaskInput,
+  RevertTaskChangesInput,
   ValidationError,
 } from '@workjournal/shared';
 import { validateBody, validateQuery, operationInput } from '../hooks/validation.js';
@@ -126,6 +134,7 @@ export async function registerTaskRoutes(server: FastifyInstance) {
       { key: input.idempotency_key, input: operationInput(input) },
       input.session_id ?? null,
       input.agentCall,
+      scope.rootPath,
     );
   });
 
@@ -156,5 +165,62 @@ export async function registerTaskRoutes(server: FastifyInstance) {
       { key: input.idempotency_key, input: operationInput(input) },
       input.agentCall,
     );
+  });
+
+  // ---- Addendum A/B: change set, snapshots, revert/rollback ----
+
+  /** A5/B: change set — `task_id` injected from the path, must match when given. */
+  server.get('/:id/changes', { preHandler: [validateQuery(getTaskChangesQuerySchema)] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const query = request.query as GetTaskChangesQuery & { agentCall?: boolean };
+    if (query.task_id && query.task_id !== id) {
+      throw new ValidationError(
+        `Task id in the path (${id}) does not match the query (${query.task_id}).`,
+      );
+    }
+    const scope = server.projectDbs.forTask(id);
+    return buildServices(scope.db).snapshots.getTaskChanges(
+      id,
+      { ...query, task_id: id },
+      scope.rootPath,
+    );
+  });
+
+  /** Snapshot list — the dashboard resolves checkpoint → snapshot for rollback targets. */
+  server.get('/:id/snapshots', { preHandler: [validateQuery(listSnapshotsQuerySchema)] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const query = request.query as ListSnapshotsQuery;
+    if (query.task_id && query.task_id !== id) {
+      throw new ValidationError(
+        `Task id in the path (${id}) does not match the query (${query.task_id}).`,
+      );
+    }
+    const scope = server.projectDbs.forTask(id);
+    return buildServices(scope.db).snapshots.listSnapshots(id, query.limit, query.offset);
+  });
+
+  /** Preview a revert/rollback (read-only; spec §6.2). */
+  server.post('/:id/revert/preview', { preHandler: [validateBody(previewRevertTaskSchema)] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const input = request.body as PreviewRevertTaskInput;
+    if (input.task_id !== id) {
+      throw new ValidationError(`Task id in the path (${id}) does not match the body (${input.task_id}).`);
+    }
+    const scope = server.projectDbs.forTask(id);
+    return buildServices(scope.db).rollback.preview(input, scope.rootPath);
+  });
+
+  /** Apply a revert/rollback (mutation; spec §7.3). */
+  server.post('/:id/revert', { preHandler: [validateBody(revertTaskChangesSchema)] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const input = request.body as RevertTaskChangesInput;
+    if (input.task_id !== id) {
+      throw new ValidationError(`Task id in the path (${id}) does not match the body (${input.task_id}).`);
+    }
+    const scope = server.projectDbs.forTask(id);
+    return buildServices(scope.db).rollback.apply(input, scope.rootPath, {
+      key: input.idempotency_key,
+      input: operationInput(input),
+    });
   });
 }

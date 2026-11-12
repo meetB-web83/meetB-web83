@@ -10,6 +10,7 @@ export * from './schemas/dashboard.js';
 export * from './schemas/idempotency.js';
 export * from './schemas/query.js';
 export * from './schemas/handoff.js';
+export * from './schemas/snapshot.js';
 export * from './types/task-status.js';
 export * from './types/priority.js';
 export * from './types/actor.js';
