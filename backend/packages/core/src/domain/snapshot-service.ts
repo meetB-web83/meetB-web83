@@ -248,7 +248,9 @@ export class SnapshotService {
         for (const s of snapshots) {
           if (s.sequence > targetSeq && s.sequence < safetySeq) {
             rolledBackSnapshotIds.push(s.id);
-            if (s.kind === 'checkpoint') rolledBackCheckpointIds.push(s.id);
+            // Checkpoint ids (not snapshot ids) — matches checkpoints.id so the
+            // view/export/dashboard map onto real checkpoint rows.
+            if (s.kind === 'checkpoint' && s.checkpoint_id) rolledBackCheckpointIds.push(s.checkpoint_id);
           }
         }
         for (const id of rolledBackSnapshotIds) rolledBackIds.add(id);

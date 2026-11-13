@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync, chmodSync, statSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import type { Database } from '../db/connection.js';
 import { EventService } from './event-service.js';
@@ -72,6 +72,19 @@ function readWorktree(rootPath: string, relPath: string): { kind: 'absent' } | {
   } catch (err: any) {
     if (err?.code === 'ENOENT') return { kind: 'absent' };
     return { kind: 'error', reason: err?.message ?? String(err) };
+  }
+}
+
+/**
+ * Executable bit of a worktree file. On Windows the exec bit is not
+ * representable (stat never reports it), so mode normalization there degrades
+ * to content-only — apply still writes the correct bytes.
+ */
+function isExecutable(rootPath: string, relPath: string): boolean {
+  try {
+    return (statSync(resolve(rootPath, relPath)).mode & 0o111) !== 0;
+  } catch {
+    return false;
   }
 }
 
@@ -313,6 +326,18 @@ export class RollbackService {
       const tBytes = blobAt(rootPath, tSha, path);
       if (!tBytes) return notRestorable('target blob unavailable');
       if (w.bytes.equals(tBytes)) {
+        // Content matches, but a mode-only difference still needs the write
+        // path so apply chmods the file back to the target's recorded mode
+        // (spec §6.2 case 2 — "already at target" includes the mode).
+        if (targetEntry && isExecutable(rootPath, path) !== (targetEntry.mode === '100755')) {
+          return {
+            path,
+            status: 'clean',
+            action: 'write',
+            reason: 'content matches the target; file mode will be restored',
+            wtHash,
+          };
+        }
         return { path, status: 'clean', action: 'noop', reason: 'already matches the target', wtHash };
       }
       if (ps.inEffective) {
@@ -438,15 +463,18 @@ export class RollbackService {
         this.snapshots.recordCaptured(rollbackPending);
 
         // ---- 4. Rolled-back checkpoints derived from the committed rows ----
+        // Checkpoint ids (checkpoints.id), matching the RollbackInfo derivation
+        // so response, resume, exports and dashboard all speak checkpoint ids.
         const rolledBackCheckpointIds = this.snapshots
           .allSnapshots(input.task_id)
           .filter(
             (s) =>
               s.kind === 'checkpoint' &&
+              s.checkpoint_id &&
               s.sequence > target.sequence &&
               s.sequence < safety.sequence,
           )
-          .map((s) => s.id);
+          .map((s) => s.checkpoint_id as string);
 
         // ---- 5. revert_applied event (reason required by B5) ----
         const appliedAt = new Date().toISOString();
