@@ -26,6 +26,7 @@ import {
 import { emitKeypressEvents } from 'node:readline';
 import type { SetupContext, SetupEnv } from './types.js';
 import { AGENT_INTEGRATIONS, findIntegration } from './registry.js';
+import { installSkillsForAgents, printSkillsSummary } from './skills/index.js';
 
 // ── ANSI color helpers (zero-dependency, SEA-safe) ─────────────────────────
 
@@ -258,6 +259,25 @@ export async function setupCommand(opts: SetupOptions): Promise<void> {
     if (validation.details.length > 0) {
       log.message(`${color.blue('Validation:')}`);
       for (const d of validation.details) console.log(`  ${color.gray('•')} ${d}`);
+    }
+  }
+
+  // ── Skills installation prompt ──────────────────────────────────────────────
+  // Only prompt if we have successfully configured agents and not in dry-run mode
+  const successfulAgents = results.filter((r) => r.state === 'ok').map((r) => r.agentId);
+  if (successfulAgents.length > 0 && !opts.dryRun) {
+    const shouldInstallSkills = await confirm({
+      message: 'Install WorkJournal skills for selected agents globally?',
+      initialValue: true,
+    });
+    if (!isCancel(shouldInstallSkills) && shouldInstallSkills) {
+      const skillsSummary = await installSkillsForAgents(
+        successfulAgents,
+        env.workjournalHome,
+        env.homeDir ?? homedir(),
+        false
+      );
+      printSkillsSummary(skillsSummary);
     }
   }
 

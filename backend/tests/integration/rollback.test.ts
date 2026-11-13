@@ -469,4 +469,294 @@ describe('Addendum A/B — working-tree snapshots + rollback engine (M6, B11)', 
     const preview2 = rollback.preview(previewInput(taskId, cp2.snapshot.id), root);
     expect(preview2.preview_id).not.toBe(preview.preview_id);
   });
+
+  // ------------------------------------------------------------------ B11-9
+  it('B11-9: idempotency — same key+input replays stored response; different input → conflict', async () => {
+    const { taskId, cp2 } = await seedThreeCheckpoints();
+
+    const preview = rollback.preview(previewInput(taskId, cp2.snapshot.id), root);
+    const key = nextKey();
+    const input1 = applyInput(taskId, cp2.snapshot.id, preview.preview_id, key);
+    const res1 = applyRevert(input1);
+
+    expect(res1.rollback_snapshot_id).toBeTruthy();
+    // Sequences: baseline=1, cp1=2, cp2=3, cp3=4, safety=5, rollback=6
+    expect(snapshotCount(taskId)).toBe(6);
+    expect(revertAppliedEvents(taskId).length).toBe(1);
+    expect(idempotencyRows(key)).toBe(1);
+
+    // Identical retry → deep-equal replay, no new snapshots/events.
+    const res2 = applyRevert(input1);
+    expect(res2).toEqual(res1);
+    expect(snapshotCount(taskId)).toBe(6);
+    expect(revertAppliedEvents(taskId).length).toBe(1);
+    expect(idempotencyRows(key)).toBe(1);
+
+    // Same key, different reason → IDEMPOTENCY_KEY_CONFLICT.
+    const input2 = applyInput(taskId, cp2.snapshot.id, preview.preview_id, key, { reason: 'different reason' });
+    await expect(applyRevert(input2)).rejects.toThrow(IdempotencyConflictError);
+  });
+
+  // ------------------------------------------------------------------ B11-10
+  it('B11-10: auth — non-owner rejected; operator allowed; preview also authorized', async () => {
+    const { taskId, cp1 } = await seedThreeCheckpoints();
+
+    // Preview with non-owner → rejected (sync function).
+    expect(() => rollback.preview(previewInput(taskId, cp1.snapshot.id, OTHER), root)).toThrow(OwnerMismatchError);
+
+    // Apply with non-owner → rejected.
+    const preview = rollback.preview(previewInput(taskId, cp1.snapshot.id), root);
+    expect(() => applyRevert(applyInput(taskId, cp1.snapshot.id, preview.preview_id, nextKey(), { agentId: OTHER }))).toThrow(OwnerMismatchError);
+
+    // Operator on preview → allowed.
+    const opPreview = rollback.preview(previewInput(taskId, cp1.snapshot.id, OPERATOR), root);
+    expect(opPreview.target.id).toBe(cp1.snapshot.id);
+
+    // Operator on apply → allowed.
+    const res = applyRevert(applyInput(taskId, cp1.snapshot.id, opPreview.preview_id, nextKey(), { agentId: OPERATOR }));
+    expect(res.failed_paths).toEqual([]);
+    expect(read('tracked.txt')).toBe('v1\n');
+  });
+
+  // ------------------------------------------------------------------ B11-11
+  it('B11-11: reason required (schema rejects empty)', async () => {
+    const { taskId, cp1 } = await seedThreeCheckpoints();
+    const preview = rollback.preview(previewInput(taskId, cp1.snapshot.id), root);
+    const input = { ...applyInput(taskId, cp1.snapshot.id, preview.preview_id, nextKey()), reason: '' };
+    expect(() => revertTaskChangesSchema.parse(input)).toThrow();
+  });
+
+  // ------------------------------------------------------------------ B11-12
+  it('B11-12: rejections — no-op target, cross-task target, path escape', async () => {
+    const { taskId, cp2, cp3 } = await seedThreeCheckpoints();
+
+    // No-op: target == effective (cp3 is effective) → preview throws.
+    expect(() => rollback.preview(previewInput(taskId, cp3.snapshot.id), root)).toThrow(/nothing to roll back/);
+
+    // Cross-task target: create another task, use its baseline → preview throws.
+    const otherTask = await tasks.createTask({ projectId: 'p1', title: 'other' });
+    await tasks.claimTask(otherTask.id, OWNER, { key: nextKey(), input: {} }, null, false, root);
+    const otherBaseline = snapshots.getBaselineSnapshot(otherTask.id)!;
+    expect(() => rollback.preview(previewInput(taskId, otherBaseline.id), root)).toThrow(/different task/);
+
+    // Path traversal in force_paths.
+    const p3 = rollback.preview(previewInput(taskId, cp2.snapshot.id), root);
+    expect(() => applyRevert(applyInput(taskId, cp2.snapshot.id, p3.preview_id, nextKey(), { forcePaths: ['../etc/passwd'] }))).toThrow(/escapes the project root/);
+    expect(() => applyRevert(applyInput(taskId, cp2.snapshot.id, p3.preview_id, nextKey(), { forcePaths: ['/absolute/path'] }))).toThrow(/escapes the project root/);
+    expect(() => applyRevert(applyInput(taskId, cp2.snapshot.id, p3.preview_id, nextKey(), { forcePaths: ['.workjournal/secret.db'] }))).toThrow(/protected .workjournal/);
+  });
+
+  // ------------------------------------------------------------------ B11-13
+  it('B11-13: degraded target reported not-restorable in preview; apply refuses', async () => {
+    const { taskId, cp1, cp2, cp3 } = await seedThreeCheckpoints();
+
+    // Simulate a capture failure on cp2 (not the effective snapshot).
+    db.raw
+      .prepare('UPDATE task_snapshots SET capture_status = ?, commit_sha = NULL WHERE id = ?')
+      .run('degraded', cp2.snapshot.id);
+
+    const preview = rollback.preview(previewInput(taskId, cp2.snapshot.id), root);
+    expect(preview.paths.length).toBeGreaterThan(0);
+    for (const p of preview.paths) {
+      expect(p.status).toBe('not-restorable');
+    }
+    expect(preview.would_restore).toEqual([]);
+    expect(preview.would_delete).toEqual([]);
+
+    // Apply throws even if union happens to be empty.
+    expect(() => applyRevert(applyInput(taskId, cp2.snapshot.id, preview.preview_id, nextKey()))).toThrow(/degraded/);
+    // Nothing changed: no new snapshots, no event, tree untouched.
+    expect(read('tracked.txt')).toBe('v3\n');
+    expect(revertAppliedEvents(taskId).length).toBe(0);
+  });
+
+  // ------------------------------------------------------------------ B11-14
+  it('B11-14: records preserved — append-only sequences; checkpoints/snapshots never mutated; rolled-back flag derived', async () => {
+    const { taskId, cp1, cp2, cp3 } = await seedThreeCheckpoints();
+    const preSeq = allEventSequences(taskId);
+
+    const preview = rollback.preview(previewInput(taskId, cp2.snapshot.id), root);
+    const res = applyRevert(applyInput(taskId, cp2.snapshot.id, preview.preview_id, nextKey()));
+    const postSeq = allEventSequences(taskId);
+
+    // Event sequence monotonic append: rollback apply creates 3 events (safety snapshot, rollback snapshot, revert_applied).
+    expect(postSeq.length).toBe(preSeq.length + 3);
+    expect(postSeq[postSeq.length - 1]).toBeGreaterThan(preSeq[preSeq.length - 1]);
+
+    // Checkpoint rows unchanged (id, created_at, fields intact).
+    const ckRows = db.raw.prepare('SELECT * FROM checkpoints WHERE task_id = ? ORDER BY created_at ASC').all(taskId) as any[];
+    expect(ckRows.length).toBe(3);
+    expect(ckRows[0].id).toBe(cp1.id);
+    expect(ckRows[2].id).toBe(cp3.id);
+
+    // Snapshot rows unchanged; rollback linkage set on the NEW rollback snapshot.
+    const snapRows = db.raw.prepare('SELECT id, kind, target_snapshot_id, safety_snapshot_id FROM task_snapshots WHERE task_id = ? ORDER BY sequence ASC').all(taskId) as any[];
+    const rollbackSnap = snapRows.find((s) => s.kind === 'rollback');
+    expect(rollbackSnap).toBeTruthy();
+    expect(rollbackSnap!.target_snapshot_id).toBe(cp2.snapshot.id);
+    expect(rollbackSnap!.safety_snapshot_id).toBeTruthy();
+
+    // Rolled-back flag is derived at read time (not stored).
+    const view = getRollbackView(db, taskId);
+    expect(view.rolledBackCheckpointIds.has(cp3.id)).toBe(true);
+    expect(view.rolledBackCheckpointIds.has(cp2.id)).toBe(false);
+    expect(view.workingCheckpoint!.id).toBe(cp2.id);
+  });
+
+  // ------------------------------------------------------------------ B11-15
+  it('B11-15: multiple rollbacks — derivation of rolled-back set + effective snapshot correct', async () => {
+    const { taskId, cp1, cp2, cp3 } = await seedThreeCheckpoints();
+
+    // First rollback: to cp2 (covers cp3).
+    let preview = rollback.preview(previewInput(taskId, cp2.snapshot.id), root);
+    const res1 = applyRevert(applyInput(taskId, cp2.snapshot.id, preview.preview_id, nextKey()));
+    let view = getRollbackView(db, taskId);
+    expect(view.rolledBackCheckpointIds.has(cp3.id)).toBe(true);
+    expect(view.rolledBackCheckpointIds.has(cp2.id)).toBe(false);
+    expect(view.workingCheckpoint!.id).toBe(cp2.id);
+    expect(view.latestRollback!.target_snapshot_id).toBe(cp2.snapshot.id);
+    expect(view.latestRollback!.rolled_back_checkpoint_ids).toEqual([cp3.id]);
+    expect(view.rb.effective!.id).toBe(res1.rollback_snapshot_id); // effective = rollback snapshot
+
+    // Second rollback: to cp1 (covers cp2).
+    preview = rollback.preview(previewInput(taskId, cp1.snapshot.id), root);
+    const res2 = applyRevert(applyInput(taskId, cp1.snapshot.id, preview.preview_id, nextKey()));
+    view = getRollbackView(db, taskId);
+    expect(view.rolledBackCheckpointIds.has(cp2.id)).toBe(true);
+    expect(view.rolledBackCheckpointIds.has(cp3.id)).toBe(true);
+    expect(view.rolledBackCheckpointIds.has(cp1.id)).toBe(false);
+    expect(view.workingCheckpoint!.id).toBe(cp1.id);
+    expect(view.latestRollback!.target_snapshot_id).toBe(cp1.snapshot.id);
+    // Both rollbacks recorded.
+    expect(view.rb.rollbacks.length).toBe(2);
+    expect(view.latestRollback!.target_snapshot_id).toBe(cp1.snapshot.id);
+    // latestRollback reflects ALL checkpoints between its target (cp1) and its safety snapshot,
+    // which includes cp2 AND cp3 (both were after cp1 when safety was captured).
+    expect(view.latestRollback!.rolled_back_checkpoint_ids).toEqual([cp2.id, cp3.id]);
+    expect(view.rb.effective!.id).toBe(res2.rollback_snapshot_id);
+    // The apply response includes ALL checkpoints rolled back by this apply.
+    expect(res2.rolled_back_checkpoint_ids).toEqual([cp2.id, cp3.id]);
+  });
+
+  // ------------------------------------------------------------------ B11-16
+  it('B11-16: effective snapshot correctness — change set after rollback = diff(baseline, post-rollback)', async () => {
+    const { taskId, baseline, cp2, cp3 } = await seedThreeCheckpoints();
+
+    // Rollback to cp2.
+    const preview = rollback.preview(previewInput(taskId, cp2.snapshot.id), root);
+    const res = applyRevert(applyInput(taskId, cp2.snapshot.id, preview.preview_id, nextKey()));
+
+    // Effective snapshot is the rollback snapshot.
+    const effective = snapshots.getSnapshot(res.rollback_snapshot_id);
+    expect(effective).not.toBeNull();
+    expect(effective!.kind).toBe('rollback');
+
+    // Diff baseline -> effective equals the expected working tree (cp2's tree).
+    const diff = diffRefs(root, baseline.commit_sha!, effective!.commit_sha!);
+    const paths = diff.changedFiles.map((f: any) => f.path).sort();
+    expect(paths).toContain('file-a.txt');
+    expect(paths).toContain('file-b.txt');
+    expect(paths).not.toContain('file-c.txt'); // was added after cp2, now gone
+    // tracked.txt back to v2; modified vs baseline.
+    const tracked = diff.changedFiles.find((f: any) => f.path === 'tracked.txt');
+    expect(tracked.status).toBe('modified');
+
+    // Drift vs effective (vs_worktree) shows no changes since we just restored.
+    const drift = snapshots.getTaskChanges(taskId, { comparison: 'vs_worktree' }, root);
+    expect(drift.drift?.changed_files.length ?? 0).toBe(0);
+  });
+
+  // ------------------------------------------------------------------ B11-17
+  it('B11-17: resume/export determinism + JSON/Markdown agreement; handoffJsonSchema validates', async () => {
+    const { taskId, cp1, cp2, cp3 } = await seedThreeCheckpoints();
+
+    // Rollback to cp2.
+    const preview = rollback.preview(previewInput(taskId, cp2.snapshot.id), root);
+    const res = applyRevert(applyInput(taskId, cp2.snapshot.id, preview.preview_id, nextKey()));
+
+    // Build resume, JSON, Markdown.
+    const resumeText = await resume.build(taskId);
+    const json = await jsonExport.exportTask(taskId);
+    const md = await mdExport.exportTask(taskId);
+
+    // Determinism: same records → same output (strip non-deterministic fields).
+    const stripNonDeterministic = (o: any) => {
+      const cloned = JSON.parse(JSON.stringify(o));
+      cloned.exported_at = 'FIXED';
+      return cloned;
+    };
+    const j1 = stripNonDeterministic(json);
+    const j2 = stripNonDeterministic(await jsonExport.exportTask(taskId));
+    expect(j1).toEqual(j2);
+
+    // JSON/Markdown agreement on working vs rolled-back.
+    const view = getRollbackView(db, taskId);
+    const workingId = view.workingCheckpoint!.id;
+    const rolledIds = Array.from(view.rolledBackCheckpointIds);
+
+    expect(j1.checkpoint.id).toBe(workingId);
+    expect(j1.checkpoints.find((c: any) => c.id === workingId)?.rolled_back).toBe(false);
+    for (const id of rolledIds) {
+      expect(j1.checkpoints.find((c: any) => c.id === id)?.rolled_back).toBe(true);
+    }
+
+    // Markdown has the working checkpoint section with its id.
+    expect(md).toContain(`## Working Checkpoint`);
+    expect(md).toContain(`- **ID:** ${workingId}`);
+    // Rolled-back section contains cp3 id.
+    expect(md).toContain(`## Rolled-back Checkpoints`);
+    expect(md).toContain(cp3.id);
+    // And not the working one.
+    expect(md).not.toContain(`- **${cp2.id}**`); // cp2 is working, not in rolled-back list
+
+    // handoffJsonSchema validates the JSON export.
+    const handoff = handoffJsonSchema.parse(j1);
+    expect(handoff.format_version).toBe(2);
+    expect(handoff.checkpoint).not.toBeNull();
+    expect(handoff.rollback.present).toBe(true);
+    expect(handoff.snapshots.effective_kind).toBe('rollback');
+  });
+
+  // ------------------------------------------------------------------ B11-18
+  it('B11-18: continuity — Agent A cp1-3; operator rolls back to cp2; Agent B resumes sees notice, working cp2, cp3 marked rolled back, changes vs effective', async () => {
+    const { taskId, cp1, cp2, cp3 } = await seedThreeCheckpoints();
+
+    // Agent A did checkpoints 1-3 (seeded).
+    // Operator rolls back to cp2.
+    const preview = rollback.preview(previewInput(taskId, cp2.snapshot.id, OPERATOR), root);
+    const res = applyRevert(applyInput(taskId, cp2.snapshot.id, preview.preview_id, nextKey(), { agentId: OPERATOR }));
+
+    // Agent B resumes: build resume context.
+    const resumeText = await resume.build(taskId);
+
+    // Rollback Notice present.
+    expect(resumeText).toContain('## Rollback Notice');
+    expect(resumeText).toContain('Working tree rolled back');
+    expect(resumeText).toContain(cp2.id); // target checkpoint id in notice
+    expect(resumeText).toContain(cp3.id); // rolled-back cp3 id in notice
+
+    // Working Checkpoint section (not "Latest Checkpoint").
+    expect(resumeText).toContain('## Working Checkpoint');
+    expect(resumeText).toContain(`- **ID:** ${cp2.id}`);
+
+    // Rolled-back checkpoints section with "not reflected" marker.
+    expect(resumeText).toContain('## Rolled-back Checkpoints');
+    expect(resumeText).toContain('not reflected');
+    expect(resumeText).toContain(cp3.id);
+    expect(resumeText).toContain('f3'); // cp3 findings shown
+
+    // Working-tree Changes section + Safety snapshot.
+    expect(resumeText).toContain('## Working-tree Changes (vs baseline)');
+    expect(resumeText).toContain('Safety snapshot:');
+    expect(resumeText).toContain(res.safety_snapshot_id);
+
+    // Handoff export validates v2 format with same semantics.
+    const json = await jsonExport.exportTask(taskId);
+    const handoff = handoffJsonSchema.parse(json);
+    expect(handoff.checkpoint!.id).toBe(cp2.id);
+    expect(handoff.checkpoints.find((c) => c.id === cp3.id)?.rolled_back).toBe(true);
+    expect(handoff.checkpoints.find((c) => c.id === cp2.id)?.rolled_back).toBe(false);
+    expect(handoff.rollback.present).toBe(true);
+    expect(handoff.rollback.latest!.rolled_back_checkpoint_ids).toEqual([cp3.id]);
+  });
 });

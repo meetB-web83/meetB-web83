@@ -328,22 +328,33 @@ export function diffWorktreeVsRef(
   if (!repo.isRepo || !repo.root) {
     return { changedFiles: [], insertions: 0, deletions: 0 };
   }
-  const ns = execGit(['diff', '--name-status', ref, '--'], { cwd: repo.root });
-  const entries = parseDiffNameStatus(ns.stdout);
-  const num = execGit(['diff', '--numstat', ref, '--'], { cwd: repo.root });
-  const counts = parseDiffNumstat(num.stdout);
-  let insertions = 0;
-  let deletions = 0;
-  const out: typeof entries = [];
-  for (const e of entries) {
-    const c = counts.find((x) => x.path === e.path);
-    const ins = c?.insertions ?? 0;
-    const dels = c?.deletions ?? 0;
-    insertions += ins;
-    deletions += dels;
-    out.push({ ...e, insertions: ins, deletions: dels, binary: c?.binary ?? false });
+  // Use a temporary index to compare the working tree against the ref,
+  // so untracked files in the working tree are properly detected.
+  const indexFile = join(tmpdir(), `wj-drift-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const env = { ...process.env, GIT_INDEX_FILE: indexFile };
+  try {
+    execGit(['read-tree', ref], { cwd: repo.root, env });
+    execGit(['add', '-A'], { cwd: repo.root, env });
+    // Compare the temp index (now matching worktree) against the ref commit.
+    const ns = execGit(['diff', '--cached', ref, '--name-status', '--no-renames'], { cwd: repo.root, env });
+    const entries = parseDiffNameStatus(ns.stdout);
+    const num = execGit(['diff', '--cached', ref, '--numstat'], { cwd: repo.root, env });
+    const counts = parseDiffNumstat(num.stdout);
+    let insertions = 0;
+    let deletions = 0;
+    const out: typeof entries = [];
+    for (const e of entries) {
+      const c = counts.find((x) => x.path === e.path);
+      const ins = c?.insertions ?? 0;
+      const dels = c?.deletions ?? 0;
+      insertions += ins;
+      deletions += dels;
+      out.push({ ...e, insertions: ins, deletions: dels, binary: c?.binary ?? false });
+    }
+    return { changedFiles: out.sort((a, b) => a.path.localeCompare(b.path)), insertions, deletions };
+  } finally {
+    try { rmSync(indexFile, { force: true }); } catch { /* ignore */ }
   }
-  return { changedFiles: out.sort((a, b) => a.path.localeCompare(b.path)), insertions, deletions };
 }
 
 /** Diff a ref against current HEAD (what has since been committed). */
